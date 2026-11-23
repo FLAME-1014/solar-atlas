@@ -16,6 +16,7 @@
     "test:mobile": "npm run build && node scripts/verify-mobile.mjs",
     "pwa:check": "npm run build && node scripts/verify-mobile.mjs",
     "test:completion": "npm run build && node scripts/verify-completion.mjs",
+    "precheck": "npm run build",
     "check": "node scripts/check.mjs",
     "pretest": "npm run build",
     "test": "node scripts/verify.mjs"
