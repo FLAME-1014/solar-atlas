@@ -1,0 +1,13 @@
+{
+  "name": "Solar Atlas · 太阳系图谱",
+  "short_name": "太阳系图谱",
+  "description": "探索太阳系、航天任务、深空与地球海洋。",
+  "start_url": "./?view=atlas",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#050708",
+  "theme_color": "#050708",
+  "orientation": "any",
+  "icons": [{ "src": "./assets/app-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }]
+}

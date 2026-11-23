@@ -1,0 +1,23 @@
+const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
+function project(lon,lat,zoom){const size=256*2**zoom,sin=Math.sin(clamp(lat,-85.051,85.051)*Math.PI/180);return {x:(lon+180)/360*size,y:(.5-Math.log((1+sin)/(1-sin))/(4*Math.PI))*size};}
+function unproject(x,y,zoom){const size=256*2**zoom;return {lon:((x/size*360-180+180)%360+360)%360-180,lat:Math.atan(Math.sinh(Math.PI*(1-2*y/size)))*180/Math.PI};}
+export class EarthMap{
+  constructor(host,onLocation){this.host=host;this.onLocation=onLocation;this.zoom=3;this.lon=119;this.lat=26;this.layer='satellite';this.cache=new Map();this.canvas=document.createElement('canvas');this.canvas.setAttribute('aria-label','可拖动与缩放的地球地图');this.context=this.canvas.getContext('2d');host.append(this.canvas);this.pointers=new Map();this.observer=new ResizeObserver(()=>this.draw());this.observer.observe(host);this.status=document.createElement('div');this.status.className='map-attribution';host.append(this.status);
+    this.canvas.addEventListener('pointerdown',e=>{this.canvas.setPointerCapture(e.pointerId);this.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});this.down={x:e.clientX,y:e.clientY};if(this.pointers.size===2){const p=[...this.pointers.values()];this.pinch=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);} });
+    this.canvas.addEventListener('pointermove',e=>{const old=this.pointers.get(e.pointerId);if(!old)return;this.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(this.pointers.size===2){const p=[...this.pointers.values()],distance=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);if(this.pinch&&Math.abs(distance-this.pinch)>45){this.changeZoom(distance>this.pinch?1:-1);this.pinch=distance;}return;}const centre=project(this.lon,this.lat,this.zoom);Object.assign(this,unproject(centre.x-(e.clientX-old.x),centre.y-(e.clientY-old.y),this.zoom));this.draw();});
+    const release=e=>{this.pointers.delete(e.pointerId);if(!this.pointers.size){this.pinch=null;this.onLocation?.({lon:this.lon,lat:this.lat});}};this.canvas.addEventListener('pointerup',release);this.canvas.addEventListener('pointercancel',release);
+    this.canvas.addEventListener('wheel',e=>{e.preventDefault();const now=Date.now();if(now-(this.lastWheel||0)>100){this.lastWheel=now;this.changeZoom(e.deltaY>0?-1:1);}},{passive:false});
+  }
+  show(location){Object.assign(this,location);this.host.hidden=false;this.active=true;this.draw();}
+  hide(){this.host.hidden=true;this.active=false;}
+  setLayer(layer){this.layer=layer;this.draw();}
+  changeZoom(amount){this.zoom=clamp(this.zoom+amount,2,18);this.draw();}
+  go(location){Object.assign(this,location);this.zoom=Math.max(this.zoom,7);this.draw();}
+  draw(){if(!this.active)return;const width=this.host.clientWidth,height=this.host.clientHeight;if(!width||!height)return;const dpr=Math.min(devicePixelRatio,1.5);this.canvas.width=width*dpr;this.canvas.height=height*dpr;this.canvas.style.width=width+'px';this.canvas.style.height=height+'px';const c=this.context;c.setTransform(dpr,0,0,dpr,0,0);c.fillStyle='#0c1924';c.fillRect(0,0,width,height);const centre=project(this.lon,this.lat,this.zoom),left=centre.x-width/2,top=centre.y-height/2,n=2**this.zoom;const minX=Math.floor(left/256),maxX=Math.floor((left+width)/256),minY=Math.floor(top/256),maxY=Math.floor((top+height)/256);let missing=0;
+    for(let ty=minY;ty<=maxY;ty++)for(let tx=minX;tx<=maxX;tx++){if(ty<0||ty>=n)continue;const x=((tx%n)+n)%n,key=`${this.layer}/${this.zoom}/${x}/${ty}`;let tile=this.cache.get(key);if(!tile){const image=new Image();image.referrerPolicy='strict-origin-when-cross-origin';image.onload=()=>{tile.loaded=true;this.draw();};image.onerror=()=>{tile.failed=true;this.draw();};tile={image,loaded:false,failed:false};this.cache.set(key,tile);image.src=this.layer==='street'?`https://tile.openstreetmap.org/${this.zoom}/${x}/${ty}.png`:`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${this.zoom}/${ty}/${x}`;}
+      const px=tx*256-left,py=ty*256-top;if(tile.loaded)c.drawImage(tile.image,px,py,256,256);else{c.strokeStyle='#9fb8b01a';c.strokeRect(px,py,256,256);if(tile.failed)missing++;}
+    }
+    if(this.cache.size>180){for(const key of this.cache.keys()){if(this.cache.size<=130)break;if(!key.startsWith(`${this.layer}/${this.zoom}/`))this.cache.delete(key);}}
+    c.strokeStyle='#eed0a0aa';c.beginPath();c.moveTo(width/2-9,height/2);c.lineTo(width/2+9,height/2);c.moveTo(width/2,height/2-9);c.lineTo(width/2,height/2+9);c.stroke();this.status.textContent=`${this.layer==='street'?'© OpenStreetMap contributors':'Imagery © Esri · Maxar · Earthstar Geographics'} · Z${this.zoom}${missing?' · 部分瓦片不可用':''} · ${this.lat.toFixed(3)}°, ${this.lon.toFixed(3)}°`;
+  }
+}

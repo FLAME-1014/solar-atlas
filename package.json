@@ -1,0 +1,31 @@
+{
+  "name": "solar-atlas-recreation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-app.mjs",
+    "predev": "npm run build",
+    "dev": "node server.mjs",
+    "prestart": "npm run build",
+    "start": "node server.mjs",
+    "assets": "node scripts/fetch-assets.mjs",
+    "assets:mobile": "node scripts/optimize-mobile.mjs",
+    "weather": "node scripts/refresh-weather.mjs",
+    "build:site": "node scripts/build-site.mjs",
+    "test:mobile": "npm run build && node scripts/verify-mobile.mjs",
+    "pwa:check": "npm run build && node scripts/verify-mobile.mjs",
+    "test:completion": "npm run build && node scripts/verify-completion.mjs",
+    "check": "node scripts/check.mjs",
+    "pretest": "npm run build",
+    "test": "node scripts/verify.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "playwright": "^1.65.0",
+    "sharp": "^0.35.5"
+  }
+}

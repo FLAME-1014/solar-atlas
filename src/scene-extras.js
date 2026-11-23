@@ -1,0 +1,71 @@
+import * as THREE from 'three';
+import {AU,PLANETS,MOONS,DEG} from './data.js';
+import {StarTiles} from './star-tiles.js';
+const vec=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
+export class SceneExtras{
+  constructor(scene){this.owner=scene;this.root=new THREE.Group();scene.solarRoot.add(this.root);this.pending=new Map();this.features=[];this.featureLabels=[];this.art=new THREE.Group();scene.skyRoot.add(this.art);this.art.visible=true;this.artEnabled=true;this.lastUpdate=0;this.evolutionYears=0;this.metadata={};}
+  async read(file,binary=false){const response=await fetch(`./assets/catalog/${file}`);if(!response.ok)throw new Error(`HTTP ${response.status}`);return binary?response.arrayBuffer():response.json();}
+  async setLayer(id,enabled){
+    if(!enabled){if(this[id])this[id].visible=false;if(id==='terrain')for(const f of this.featureLabels)f.element.hidden=true;return;}
+    if(this[id]){this[id].visible=true;return;}
+    if(this.pending.has(id))return this.pending.get(id);
+    const task=(async()=>{try{if(id==='asteroids')await this.loadAsteroids();if(id==='satellites')await this.loadSatellites();if(id==='terrain')await this.loadFeatures();}catch(error){this.owner.callbacks.onWarning?.(`目录暂不可用，可以重试：${error.message}`);}finally{this.pending.delete(id);}})();this.pending.set(id,task);return task;
+  }
+  async loadAsteroids(){
+    const buffer=await this.read('asteroids.bin',true),view=new DataView(buffer),count=Math.floor(buffer.byteLength/13),a=new Float32Array(count*3),b=new Float32Array(count*3),classes=new Float32Array(count);
+    for(let i=0;i<count;i++){const offset=i*13;a[i*3]=view.getUint16(offset,true)/10000;a[i*3+1]=view.getUint16(offset+2,true)/65535;a[i*3+2]=view.getUint16(offset+4,true)/65535*Math.PI;b[i*3]=view.getUint16(offset+6,true)/65535*Math.PI*2;b[i*3+1]=view.getUint16(offset+8,true)/65535*Math.PI*2;b[i*3+2]=view.getUint16(offset+10,true)/65535*Math.PI*2;classes[i]=view.getUint8(offset+12);}
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(count*3),3));geometry.setAttribute('orbitA',new THREE.BufferAttribute(a,3));geometry.setAttribute('orbitB',new THREE.BufferAttribute(b,3));geometry.setAttribute('orbitClass',new THREE.BufferAttribute(classes,1));
+    const material=new THREE.ShaderMaterial({uniforms:{days:{value:0},dpr:{value:this.owner.renderer.getPixelRatio()}},vertexShader:`attribute vec3 orbitA;attribute vec3 orbitB;attribute float orbitClass;uniform float days;uniform float dpr;varying vec3 tint;
+float compressed(float r){if(r<1.)return r*41.;if(r<1.524)return mix(41.,55.,(r-1.)/.524);if(r<5.203)return mix(55.,81.,(r-1.524)/3.679);if(r<9.537)return mix(81.,111.,(r-5.203)/4.334);return mix(111.,224.,min(1.,(r-9.537)/30.));}
+void main(){float a=orbitA.x;float e=orbitA.y;float inc=orbitA.z;float M=orbitB.z+days*.017202099/pow(max(a,.1),1.5);float E=M;for(int k=0;k<4;k++)E-=(E-e*sin(E)-M)/(1.-e*cos(E));float x=a*(cos(E)-e);float z=a*sqrt(1.-e*e)*sin(E);float n=orbitB.x;float p=orbitB.y;vec3 v=vec3(x*(cos(n)*cos(p)-sin(n)*sin(p)*cos(inc))-z*(cos(n)*sin(p)+sin(n)*cos(p)*cos(inc)),(x*sin(p)+z*cos(p))*sin(inc),x*(sin(n)*cos(p)+cos(n)*sin(p)*cos(inc))+z*(-sin(n)*sin(p)+cos(n)*cos(p)*cos(inc)));v*=compressed(length(v))/max(length(v),.01);vec4 mv=modelViewMatrix*vec4(v,1.);gl_Position=projectionMatrix*mv;gl_PointSize=clamp(65./max(20.,-mv.z),.65,1.8)*dpr;tint=orbitClass>1.5?vec3(.5,.72,.82):vec3(.7,.65,.55);}`,fragmentShader:'varying vec3 tint;void main(){if(length(gl_PointCoord-.5)>.5)discard;gl_FragColor=vec4(tint,.6);}',transparent:true,depthWrite:false});
+    const points=new THREE.Points(geometry,material);points.frustumCulled=false;points.userData.sceneLayer=true;if(this.owner.mobile)geometry.setDrawRange(0,Math.min(count,55000));this.root.add(points);this.asteroids=points;this.owner.asteroids.visible=false;this.owner.realAsteroids=points;this.metadata.asteroids={count,rendered:this.owner.mobile?Math.min(count,55000):count,epoch:'2026-09-21'};this.owner.callbacks.onDataset?.('asteroids',this.metadata.asteroids);
+  }
+  async loadSatellites(){
+    const data=await this.read('satellites.json'),count=data.count,positions=new Float32Array(count*3);const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));const points=new THREE.Points(geometry,new THREE.PointsMaterial({size:this.owner.mobile?1.5:1.8,sizeAttenuation:false,color:0x9dc8d9,transparent:true,opacity:.7,depthWrite:false}));points.frustumCulled=false;this.root.add(points);this.satellites=points;this.satelliteData=data;this.metadata.satellites={count,date:data.generatedAt,groups:data.orbitCounts};this.owner.callbacks.onDataset?.('satellites',this.metadata.satellites);this.updateSatellites(0);
+  }
+  updateSatellites(time){
+    if(!this.satellites?.visible||!this.satelliteData)return;const {data,count}=this.satelliteData;const attr=this.satellites.geometry.attributes.position;
+    const dataDays=(sDate(this.owner.date)-Date.parse(this.satelliteData.generatedAt))/86400000;
+    for(let i=0;i<count;i++){const k=i*8,a=data[k],e=data[k+1],inc=data[k+2],node=data[k+3],p=data[k+4],M=data[k+5]+dataDays*data[k+6]*Math.PI*2;let E=M;for(let j=0;j<3;j++)E-=(E-e*Math.sin(E)-M)/(1-e*Math.cos(E));const radius=(2+(a-.3)*25)*(1-e*Math.cos(E));const angle=E+p;attr.setXYZ(i,radius*(Math.cos(node)*Math.cos(angle)-Math.sin(node)*Math.sin(angle)*Math.cos(inc)),radius*Math.sin(angle)*Math.sin(inc),radius*(Math.sin(node)*Math.cos(angle)+Math.cos(node)*Math.sin(angle)*Math.cos(inc)));}attr.needsUpdate=true;
+  }
+  async loadFeatures(){
+    const all=await Promise.all(['moon','mars','mercury'].map(async body=>({body,...await this.read(`features-${body}.json`)})));this.features=all.flatMap(data=>data.features.map(f=>({body:data.body,name:f[0],type:f[1],lat:f[2],lon:f[3],diameter:f[4],origin:f[5]})));
+    this.terrain=new THREE.Group();this.root.add(this.terrain);this.metadata.terrain={count:this.features.length};
+    for(const data of all){const record=this.owner.records.get(data.body);if(!record)continue;const group=new THREE.Group();record.mesh.add(group);for(const feature of this.features.filter(f=>f.body===data.body).slice(0,50)){const lon=feature.lon*DEG,lat=feature.lat*DEG;const pos=vec(Math.cos(lat)*Math.cos(lon),Math.sin(lat),-Math.cos(lat)*Math.sin(lon)).multiplyScalar(1.015);const dot=new THREE.Mesh(new THREE.SphereGeometry(.006,4,3),new THREE.MeshBasicMaterial({color:0xe6ce9b}));dot.position.copy(pos);group.add(dot);const element=this.owner.makeLabel(feature.name,'',()=>this.owner.callbacks.onFeature?.(feature),'feature');element.hidden=true;this.featureLabels.push({element,position:pos,record,feature,marker:dot});}}
+    this.owner.callbacks.onDataset?.('terrain',this.metadata.terrain);
+    for(const body of ['moon','mars']){this.owner.loadTexture(body+'-normal').then(texture=>{texture.colorSpace=THREE.NoColorSpace;const material=this.owner.records.get(body).mesh.material;material.normalMap=texture;material.normalScale=new THREE.Vector2(.28,.28);material.needsUpdate=true;}).catch(()=>{});}
+  }
+  focusFeature(feature){const record=this.owner.records.get(feature.body);if(!record)return;this.owner.focus(feature.body,true);const lat=feature.lat*DEG,lon=feature.lon*DEG;const normal=vec(Math.cos(lat)*Math.cos(lon),Math.sin(lat),-Math.cos(lat)*Math.sin(lon)).applyQuaternion(record.mesh.quaternion);this.owner.camera.position.copy(record.position).addScaledVector(normal,record.visualSize*4);this.owner.controls.target.copy(record.position);this.owner.controls.update();}
+  async loadWeatherGrid(){
+    if(this.weatherGrid)return this.weatherGrid;if(this.weatherPromise)return this.weatherPromise;
+    this.weatherPromise=(async()=>{const meta=await this.read('weather-grid.json'),buffer=await this.read('weather-grid.bin',true);const values=new Float32Array(buffer);if(values.length!==meta.width*meta.height*3)throw new Error('Invalid global weather grid');this.weatherGrid={...meta,values};this.metadata.weather=meta;
+      const canvas=document.createElement('canvas');canvas.width=meta.width;canvas.height=meta.height;const ctx=canvas.getContext('2d'),image=ctx.createImageData(meta.width,meta.height);
+      for(let y=0;y<meta.height;y++)for(let x=0;x<meta.width;x++){const p=((meta.height-1-y)*meta.width+x)*3;const rain=Math.max(0,values[p+2]);const k=(y*meta.width+x)*4;image.data[k]=65+Math.min(100,rain*3);image.data[k+1]=150-Math.min(70,rain*2);image.data[k+2]=220;image.data[k+3]=rain>.02?Math.min(210,30+Math.log1p(rain)*65):0;}
+      ctx.putImageData(image,0,0);const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;this.owner.precipitation.material.dispose();this.owner.precipitation.material=new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,opacity:.8});this.owner.callbacks.onDataset?.('weather',meta);return this.weatherGrid;})();
+    try{return await this.weatherPromise;}catch(error){this.weatherPromise=null;this.owner.callbacks.onWarning?.('全球天气快照暂不可用，请使用位置气象。');throw error;}
+  }
+  sampleWeather(lon,lat){const grid=this.weatherGrid;if(!grid)return null;const x=Math.round(((lon-grid.lon0)/grid.dLon%grid.width+grid.width)%grid.width)%grid.width,y=Math.max(0,Math.min(grid.height-1,Math.round((lat-grid.lat0)/grid.dLat))),k=(y*grid.width+x)*3;return {u:grid.values[k],v:grid.values[k+1],rain:grid.values[k+2],speed:Math.hypot(grid.values[k],grid.values[k+1]),validTime:grid.validTime};}
+  async loadArt(catalog){
+    if(this.artLoaded)return;this.artLoaded=true;const figures=catalog.figures.filter(f=>f.art?.[0]?.anchors?.length>=3);
+    for(let offset=0;offset<figures.length;offset+=4){await Promise.allSettled(figures.slice(offset,offset+4).map(async f=>{
+      const info=f.art[0],texture=await new THREE.TextureLoader().loadAsync(`./assets/constellations/${info.file}`);texture.colorSpace=THREE.SRGBColorSpace;
+      const anchors=info.anchors.map(a=>({x:a.pixel[0],y:a.pixel[1],v:astro(a.coord[0],a.coord[1])}));const [A,B,C]=anchors;const determinant=(B.y-C.y)*(A.x-C.x)+(C.x-B.x)*(A.y-C.y);if(Math.abs(determinant)<.001)return;
+      const geometry=new THREE.PlaneGeometry(1,1,14,14),position=geometry.attributes.position,uv=geometry.attributes.uv;
+      for(let i=0;i<position.count;i++){const x=uv.getX(i)*info.size[0],y=(1-uv.getY(i))*info.size[1];const a=((B.y-C.y)*(x-C.x)+(C.x-B.x)*(y-C.y))/determinant,b=((C.y-A.y)*(x-C.x)+(A.x-C.x)*(y-C.y))/determinant,c=1-a-b;const v=A.v.clone().multiplyScalar(a).addScaledVector(B.v,b).addScaledVector(C.v,c).normalize().multiplyScalar(1650);position.setXYZ(i,v.x,v.y,v.z);}geometry.computeBoundingSphere();const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:.2,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}));this.art.add(mesh);
+    }));}
+    this.owner.callbacks.onDataset?.('constellationArt',{count:this.art.children.length});
+  }
+  setEvolution(years){this.evolutionYears=years;const age=4.6+years/1e9;const luminosity=age<10?Math.max(.35,1/(1+.4*(1-age/4.6))):Math.min(1200,2*Math.exp((age-10)*5));this.luminosity=luminosity;const sun=this.owner.records.get('sun');sun.mesh.scale.setScalar(sun.visualSize*(age>10?Math.min(12,1+(age-10)*15):Math.pow(luminosity,.25)));if(this.owner.scienceGroups?.get('habitable'))this.owner.scienceGroups.get('habitable').scale.setScalar(Math.min(4,Math.sqrt(luminosity)));return {age,luminosity,inner:.95*Math.sqrt(luminosity),outer:1.67*Math.sqrt(luminosity),phase:age<.05?'原行星盘':age<10?'主序阶段':age<11?'红巨星演化示意':'晚期演化示意'};}
+  update(){const s=this.owner;this.root.visible=s.mode!=='flight';this.art.visible=s.mode==='deep'&&this.artEnabled;
+    if(s.mode==='globe'&&s.globeLayer==='wind'&&this.weatherGrid){
+      if(!this.weatherWind){this.weatherWind=new THREE.Group();s.globeRoot.add(this.weatherWind);this.windParticles=Array.from({length:s.mobile?120:300},(_,i)=>{const dot=new THREE.Mesh(new THREE.SphereGeometry(.018,4,3),new THREE.MeshBasicMaterial({color:0xa6dfdf}));this.weatherWind.add(dot);return {dot,lon:(i*137.5)%360-180,lat:(i*23.17)%150-75};});}this.weatherWind.visible=true;s.windRoot.visible=false;
+      for(const particle of this.windParticles){const field=this.sampleWeather(particle.lon,particle.lat);particle.lon=((particle.lon+field.u*.003+180)%360+360)%360-180;particle.lat=Math.max(-86,Math.min(86,particle.lat+field.v*.003));particle.dot.position.copy(vec(Math.cos(particle.lat*DEG)*Math.cos(particle.lon*DEG),Math.sin(particle.lat*DEG),-Math.cos(particle.lat*DEG)*Math.sin(particle.lon*DEG)).multiplyScalar(8.11));}
+    }else if(this.weatherWind)this.weatherWind.visible=false;
+    if(s.mode==='deep'&&!this.starTiles&&!this.starsPending){this.starsPending=true;this.read('stars-index.json').then(index=>this.starTiles=new StarTiles(s,index)).catch(()=>this.starsPending=false);}this.starTiles?.update();
+    if(this.asteroids){this.asteroids.visible=!s.selected&&s.settings.asteroids&&s.mode!=='flight';this.asteroids.material.uniforms.days.value=(s.date-Date.UTC(2026,8,21))/86400000;}
+    if(this.satellites){this.satellites.position.copy(s.records.get('earth').position);this.satellites.visible=s.layers.has('satellites')&&(!s.selected||s.selected==='earth');if(s.elapsed-this.lastUpdate>.2){this.updateSatellites(s.elapsed);this.lastUpdate=s.elapsed;}}
+    for(const item of this.featureLabels){const visible=s.layers.has('terrain')&&s.selected===item.feature.body&&s.settings.labels;item.marker.visible=visible;if(!visible){item.element.hidden=true;continue;}const world=item.record.mesh.localToWorld(item.position.clone()),normal=item.position.clone().transformDirection(item.record.mesh.matrixWorld),toCamera=s.camera.position.clone().sub(world).normalize();if(normal.dot(toCamera)<.2){item.element.hidden=true;continue;}const p=world.project(s.camera);item.element.hidden=Math.abs(p.x)>1||Math.abs(p.y)>1;item.element.style.transform=`translate(${(p.x*.5+.5)*s.container.clientWidth}px,${(-p.y*.5+.5)*s.container.clientHeight}px) translate(-50%,-50%)`;}
+  }
+}
+function astro(ra,dec){return vec(Math.cos(dec*DEG)*Math.cos(ra*DEG),Math.sin(dec*DEG),Math.cos(dec*DEG)*Math.sin(ra*DEG));}
+function sDate(value){return value instanceof Date?value.getTime():value;}

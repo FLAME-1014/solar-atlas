@@ -1,0 +1,6 @@
+output/
+node_modules/
+*.log
+/assets/app.bundle.js
+/assets/app-icon.png
+dist/

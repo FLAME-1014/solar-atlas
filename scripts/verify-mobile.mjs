@@ -1,0 +1,25 @@
+import {chromium,webkit} from 'playwright';
+import {createServer} from '../server.mjs';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const server=createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://127.0.0.1:${server.address().port}`;const report=[];
+try{
+  for(const scenario of ['chrome','webkit','no-webgl','stalled-images','blocked-bundle']){
+    let browser;try{
+      browser=await(scenario==='webkit'?webkit:chromium).launch(scenario==='webkit'?{headless:true}:{channel:'chrome',headless:true,args:['--enable-webgl','--enable-unsafe-swiftshader']});
+      const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+      if(scenario==='no-webgl')await page.addInitScript(()=>{const original=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(kind,...args){return /^webgl/.test(kind)?null:original.call(this,kind,...args);};});
+      if(scenario==='stalled-images')await page.route(/\/assets\/(mobile|textures)\//,()=>{});
+      if(scenario==='blocked-bundle')await page.route('**/app.bundle.js?*',r=>r.abort());
+      const start=Date.now();await page.goto(url,{waitUntil:'domcontentloaded'});
+      if(scenario==='blocked-bundle'){await page.locator('.boot-recovery').waitFor({state:'visible',timeout:12000});assert(await page.getByText('打开文字资料版 ↗',{exact:true}).isVisible());const response=await page.request.get(url+'/lite.html');assert(response.ok());assert((await response.text()).includes('206'));report.push({scenario,passed:true,recovery:true});console.log('PASS · '+scenario);continue;}
+      await page.waitForFunction(()=>window.solarAtlas?.state.ready,{timeout:10000});await page.locator('#boot').waitFor({state:'hidden'});const bootMs=Date.now()-start;assert(bootMs<10000);
+      if(scenario==='no-webgl')assert(await page.evaluate(()=>solarAtlas.state.compatibility));
+      await page.locator('#enter-atlas').tap();await page.locator('#open-search').tap();await page.locator('#search-input').fill('旅行者');assert.equal(await page.locator('[data-search-index]').count(),2);await page.locator('[data-search-index="0"]').tap();assert(await page.locator('#archive').isVisible());await page.locator('#close-archive').tap();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390);
+      if(!await page.evaluate(()=>solarAtlas.state.compatibility)){await page.locator('[data-mode=flight][role=tab]').tap();const button=page.locator('[data-thrust=w]');const box=await button.boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.waitForTimeout(250);assert(await page.evaluate(()=>solarAtlas.scene.keys.has('w')));await page.mouse.up();assert(!(await page.evaluate(()=>solarAtlas.scene.keys.has('w'))));}
+      await page.screenshot({path:`output/mobile-${scenario}.png`,animations:'disabled'});assert.deepEqual(errors,[]);report.push({scenario,passed:true,bootMs,compatibility:await page.evaluate(()=>solarAtlas.state.compatibility)});console.log(`PASS · ${scenario} · boot ${bootMs}ms`);
+    }finally{if(browser)await browser.close();}
+  }
+  const installBrowser=await chromium.launch({channel:'chrome',headless:true,args:['--enable-webgl','--enable-unsafe-swiftshader']});try{const context=await installBrowser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});const page=await context.newPage();await page.goto(url,{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>window.solarAtlas?.state.ready,{timeout:15000});await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await page.reload({waitUntil:'domcontentloaded'});await page.waitForFunction(()=>window.solarAtlas?.state.ready,{timeout:15000});const standalone=await page.evaluate(async()=>({registered:!!(await navigator.serviceWorker.getRegistration('./')),manifest:!!document.querySelector('link[rel=manifest]'),installable:matchMedia('(display-mode: standalone)').matches,scope:await (await navigator.serviceWorker.getRegistration('./'))?.scope}));if(!standalone.registered||!standalone.manifest)throw new Error('PWA installation prerequisites failed');await context.setOffline(true);await page.reload({waitUntil:'domcontentloaded',timeout:10000});await page.waitForFunction(()=>window.solarAtlas?.state.ready,{timeout:12000});const offline=await page.evaluate(()=>({ready:solarAtlas.state.ready,mode:solarAtlas.state.mode}));if(!offline.ready)throw new Error('Offline launch failed');report.push({scenario:'pwa-install-and-offline',passed:true,...standalone,offline});console.log('PASS · PWA install and offline restart');}finally{await installBrowser.close();}
+  await fs.writeFile('output/mobile-verification.json',JSON.stringify({passed:true,checkedAt:new Date().toISOString(),scenarios:report},null,2));
+}finally{await new Promise(r=>server.close(r));}
