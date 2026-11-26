@@ -42,14 +42,13 @@
   <section id="boot" aria-label="正在加载图谱">
     <div class="boot-orbits"><i></i><i></i><i></i><div class="boot-center"><span class="eyebrow">ESTABLISHING ORBIT</span><strong id="boot-percent">000<span>%</span></strong><p id="boot-stage">正在展开太阳系</p></div></div>
     <div class="boot-footer"><span>01 <b>星历与轨道</b><br>02 <b>天体贴图</b><br>03 <b>星图与界面</b></span><span>SOLAR ATLAS<br>HELIOCENTRIC · J2000</span></div>
-    <a class="boot-safe-link" href="./lite.html">启动遇到问题？打开文字资料版 ↗</a>
+    <a class="boot-safe-link" href="./lite.html#saturn" id="boot-saturn-link">启动遇到问题？打开土星文字资料 ↗</a>
   </section>
 
   <section id="landing" aria-labelledby="landing-title" hidden>
     <header class="landing-header"><a class="wordmark" href="./"><i class="sun-dot"></i>SOLAR ATLAS<span class="wordmark-rule"></span><small>一份可探索的宇宙</small></a><div class="landing-actions"><button id="landing-lang" class="quiet-button" aria-label="切换语言">中 <span>/ EN</span></button><button id="landing-audio" class="quiet-button">音乐 · 关</button></div></header>
-    <div class="landing-copy"><p class="landing-kicker"><span></span><span data-i18n="subtitle">一份四维的太阳系 · 空间 · 时间 · 观测</span></p><h1 id="landing-title" data-i18n="title">太阳系图谱</h1><p class="landing-description" data-i18n="intro">从太阳的米粒组织到遥远的柯伊伯带。沿着行星轨道，重访人类的探测旅程；再回到这颗蓝色星球，走进洋流、深海与生命。</p>
-      <div class="landing-stats"><div><strong id="stat-missions">206</strong><span data-i18n="missions">探测任务</span></div><div><strong id="stat-worlds">71</strong><span data-i18n="planets">太阳与行星卫星</span></div><div><strong id="stat-asteroids">160,129</strong><span id="asteroid-label">小行星轨道目录 · 按需加载</span></div><div><strong id="stat-years">69</strong><span data-i18n="timespan">航天时代 · 年</span></div></div>
-      <div class="landing-cta"><button class="primary-button" id="enter-atlas"><span data-i18n="enter">进入图谱</span><svg><use href="#i-arrow"/></svg></button><button class="secondary-button" id="enter-deep"><svg><use href="#i-deep"/></svg><span data-i18n="enterDeep">直接看深空</span></button></div><p class="entry-hint"><kbd>Enter</kbd> 或向下滚动，开始探索</p>
+    <div class="landing-copy"><h1 id="landing-title" data-i18n="title">太阳系图谱</h1><p class="landing-description" id="landing-intro" data-i18n="saturnIntro">从远处看见土星环，再靠近看它的侧面。</p>
+      <div class="landing-cta"><button class="primary-button" id="enter-saturn"><span id="enter-saturn-label" data-i18n="saturnStart">前往土星</span><svg aria-hidden="true"><use href="#i-arrow"/></svg></button><button class="secondary-button" id="enter-atlas"><span data-i18n="enter">自由探索图谱</span></button></div>
     </div>
     <footer class="landing-footer"><div><span>SOLAR ATLAS · 自建复刻</span><button class="text-button" data-action="about">项目与数据来源 ↗</button></div><p>万物的中央，坐着太阳。<small>— 哥白尼 · 1543</small></p></footer>
   </section>
@@ -91,9 +90,38 @@
     <div id="fps" class="fps" hidden></div>
   </div>
 
+  <section id="saturn-tour" class="saturn-tour" aria-label="土星导览" hidden>
+    <div class="saturn-tour-heading">
+      <h2 tabindex="-1" id="saturn-title" data-i18n="saturnName">土星</h2>
+      <p data-i18n="saturnScale">图谱导览 · 尺寸与距离经压缩</p>
+    </div>
+    <div class="saturn-tour-dock">
+      <div class="saturn-tour-copy">
+        <p id="saturn-status" role="status" tabindex="-1"></p>
+        <p id="saturn-controls-hint" hidden></p>
+      </div>
+      <div class="saturn-tour-actions">
+        <button class="secondary-button" id="saturn-skip" data-i18n="saturnSkip">跳过导览</button>
+        <div class="saturn-angle-actions" role="group" aria-label="土星环视角" hidden>
+          <button class="secondary-button" id="saturn-open-view" aria-pressed="false" data-i18n="saturnOpen">俯看环面</button>
+          <button class="secondary-button" id="saturn-edge-view" aria-pressed="true" data-i18n="saturnEdge">侧看土星环</button>
+        </div>
+        <button class="secondary-button" id="saturn-archive" data-i18n="saturnArchive" hidden>土星档案</button>
+        <button class="secondary-button" id="saturn-exit" data-i18n="saturnExit" hidden>返回全图</button>
+      </div>
+    </div>
+  </section>
+
   <aside id="panel" class="side-panel" hidden aria-label="设置面板"><div class="panel-head"><div><span class="eyebrow" id="panel-kicker"></span><h2 id="panel-title"></h2></div><button class="icon-button" id="close-panel" aria-label="关闭面板"><svg><use href="#i-close"/></svg></button></div><div id="panel-content" class="panel-content"></div></aside>
   <aside id="archive" class="archive" hidden aria-label="天体与任务档案"><header class="archive-header"><span class="eyebrow" id="archive-kicker">WORLD ARCHIVE</span><button id="close-archive" class="icon-button" aria-label="关闭档案"><svg><use href="#i-close"/></svg></button></header><div id="archive-content" class="archive-content"></div></aside>
-  <dialog id="search-dialog" class="search-dialog" aria-labelledby="search-heading"><h2 id="search-heading" class="sr-only">搜索图谱</h2><div class="search-input-row"><svg><use href="#i-search"/></svg><input id="search-input" placeholder="搜索天体、卫星、任务，或输入一个操作…" autocomplete="off" aria-label="搜索图谱" role="combobox" aria-controls="search-results" aria-expanded="true" aria-autocomplete="list"><button class="key-button" id="close-search">Esc</button></div><div id="search-results" class="search-results" role="listbox" aria-label="搜索结果"></div><footer><span><kbd>↑</kbd><kbd>↓</kbd> 选择 <kbd>↵</kbd> 前往</span><span id="search-count"></span></footer></dialog>
+  <dialog id="search-dialog" class="search-dialog" aria-labelledby="search-heading">
+    <header class="search-header"><h2 id="search-heading">搜索图谱</h2><button class="icon-button" id="close-search" aria-label="关闭搜索"><svg aria-hidden="true"><use href="#i-close"/></svg></button></header>
+    <div class="search-input-row"><svg aria-hidden="true"><use href="#i-search"/></svg><input id="search-input" placeholder="试试「木星」「旅行者」或「M31」" autocomplete="off" enterkeyhint="search" aria-label="搜索图谱" role="combobox" aria-controls="search-results" aria-expanded="true" aria-autocomplete="list" autofocus></div>
+    <p id="search-suggestions" class="search-context">推荐起点</p>
+    <div id="search-results" class="search-results" role="listbox" aria-label="搜索结果"></div>
+    <p id="search-empty" class="empty-search" hidden></p>
+    <footer><span id="search-keys" class="search-keys"><kbd>↑</kbd><kbd>↓</kbd><span data-i18n="searchNavigate">选择</span><kbd>↵</kbd><span data-i18n="searchOpen">前往</span></span><span id="search-count" role="status" aria-live="polite"></span></footer>
+  </dialog>
   <dialog id="info-dialog" class="info-dialog" aria-labelledby="info-title"><header><div><span class="eyebrow" id="info-kicker">SOLAR ATLAS</span><h2 id="info-title"></h2></div><button id="close-info" class="icon-button" aria-label="关闭对话框"><svg><use href="#i-close"/></svg></button></header><div id="info-content"></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <noscript><p style="position:fixed;z-index:200;bottom:20px;left:20px;background:#111;padding:20px">请启用 JavaScript，或<a href="./lite.html">打开文字资料版</a>。</p></noscript>

@@ -13,9 +13,13 @@ const currentYear=new Date().getFullYear();
 let preferences={};try{preferences=JSON.parse(localStorage.getItem('solar-atlas-preferences')||'{}');}catch{}
 const state={lang:preferences.lang==='en'?'en':'zh',landing:true,ready:false,mode:'atlas',selection:null,panel:null,quality:preferences.quality||'auto',year:currentYear,playing:false,category:'all',audio:false,immersive:false,libraryTab:'currents',libraryQuery:'',lesson:0,depth:1000,globeLayer:'natural',location:{lon:119,lat:26.1},weather:null,solarWind:null,fps:false,searchIndex:0,searchResults:[],catalog:null};
 const t=key=>TEXT[state.lang][key]||key;
+const saturnCopy={zh:{saturnIntro:'从远处看见土星环，再靠近看它的侧面。',saturnStart:'前往土星',enter:'自由探索图谱',saturnName:'土星',saturnScale:'太阳系图谱 · 尺度经压缩',saturnSkip:'跳过导览',saturnOpen:'俯看环面',saturnEdge:'侧看土星环',saturnArchive:'土星档案',saturnExit:'返回全图',saturnApproach:'土星与它的环系已在前方。',saturnEdgeStatus:'靠近土星环，视线转向侧面。',saturnArrived:'已抵达土星。拖动查看，双指缩放。',saturnArrivedMouse:'已抵达土星。拖动查看，滚轮缩放。',saturnStatic:'减少动态效果已开启。选择视角，再拖动探索。',saturnStaticControls:'图谱导览 · 无需 WebGL · 视图为示意，不提供物理飞行。',saturnOpenStatus:'环面视角',saturnEdgeView:'侧视角度',saturnNoGL:'土星图谱 · 静态示意',saturnText:'查看土星文字资料',saturnBackText:'返回兼容图谱'},en:{saturnIntro:'See Saturn’s rings from afar, then move in to see their edge.',saturnStart:'Visit Saturn',enter:'Explore the solar system',saturnName:'Saturn',saturnScale:'Solar system atlas · distances compressed',saturnSkip:'Skip tour',saturnOpen:'View the rings',saturnEdge:'View the edge',saturnArchive:'Saturn archive',saturnExit:'Return to atlas',saturnApproach:'Saturn and its rings are ahead.',saturnEdgeStatus:'Closing in on the rings and turning edge on.',saturnArrived:'At Saturn. Drag to look around; pinch to zoom.',saturnArrivedMouse:'At Saturn. Drag to look around; scroll to zoom.',saturnStatic:'Reduced motion is on. Choose a view, then explore.',saturnStaticControls:'Atlas guide · no WebGL · schematic views, no physical flight.',saturnOpenStatus:'Ring-plane view',saturnEdgeView:'Edge-on view',saturnNoGL:'Saturn atlas · static guide',saturnText:'Read about Saturn',saturnBackText:'Return to the compatibility atlas'}};
+for(const language of ['zh','en'])Object.assign(TEXT[language],saturnCopy[language]);
 const nameOf=object=>state.lang==='en'?object.en:object.name;
 const savePreferences=()=>{try{localStorage.setItem('solar-atlas-preferences',JSON.stringify({lang:state.lang,quality:state.quality}));}catch{}};
-let toastTimer,quoteTimer,audioContext,audioNodes=[],lastTimelineFrame=0;
+let toastTimer,quoteTimer,audioContext,audioNodes=[],lastTimelineFrame=0,saturnArrivalTimer;
+const motionPreference=matchMedia('(prefers-reduced-motion: reduce)');
+const reducedMotionEnabled=()=>motionPreference.matches||document.body.classList.contains('reduce-motion');
 const datasets={};
 let LESSONS=BASE_LESSONS;
 let earthMap;
@@ -29,9 +33,9 @@ function directory(items){return items.map(item=>`<button class="directory-item"
 let scene;
 const callbacks={
   onProgress(progress,stage){window.solarBoot?.progress(progress*100,progress>=1?'图谱已就绪':`正在启动 · ${stage.toUpperCase()}`);},
-  onReady(){state.ready=true;window.solarBoot?.ready();document.body.classList.toggle('compatibility-mode',Boolean(scene.isFallback));$('#boot').style.opacity='0';setTimeout(()=>{$('#boot').hidden=true;if(state.landing)$('#landing').hidden=false;},250);$('#stat-missions').textContent=MISSIONS.length;$('#stat-worlds').textContent=PLANETS.length+MOONS.length+SMALL_BODIES.length;$('#stat-years').textContent=currentYear-1957;scene.setQuality(state.quality);restoreURL();},
+  onReady(){state.ready=true;window.solarBoot?.ready();document.body.classList.toggle('compatibility-mode',Boolean(scene.isFallback));$('#boot').style.opacity='0';setTimeout(()=>{$('#boot').hidden=true;if(state.landing)$('#landing').hidden=false;},250);scene.setQuality(state.quality);if(scene.isFallback)$('#enter-saturn-label').textContent=t('saturnText');restoreURL();},
   onWarning(message){toast(message,5500);},
-  onContextLost(){useCompatibility('图形资源已中断，已自动切换兼容视图。');},
+  onContextLost(){const keepSaturn=Boolean(scene.saturnTour||state.selection?.id==='saturn');useCompatibility('图形资源已中断，已自动切换兼容视图。',keepSaturn);},
   onSelect(selection){selectObject(selection);},
   onMode(mode){syncMode(mode);},
   onCatalog(catalog){state.catalog=catalog;$('#sky-stars').textContent=formatNumber(catalog.stars.length);if(state.panel==='directory')renderPanel('directory');},
@@ -39,18 +43,24 @@ const callbacks={
   onFlight:updateFlightHUD,
   onFlightTarget(id){renderFlightTargets(id);},
   onArrival(name){toast(`已抵达 ${name} 附近，自动驾驶已停止。`);},
+  onSaturnTour(phase){if(!$('#saturn-tour').hidden)updateSaturnTour(phase);},
   onGlobePick(location){state.location=location;$('#globe-coordinate').textContent=formatCoordinate(location);if(state.panel==='weather')loadWeather();},
   onDataset(name,metadata){datasets[name]=metadata;if(name==='asteroids'){$('#stat-asteroids').textContent=formatNumber(metadata.count);$('#asteroid-label').textContent='真实轨道目录 · 按需加载';}if(name==='weather')updateGlobeLegend();if(state.panel==='science')updateDatasetReadout();},
   onFeature(feature){showInfo(feature.name,`<p>${escape(feature.body.toUpperCase())} · ${feature.lat.toFixed(3)}° / ${feature.lon.toFixed(3)}°</p><p>直径约 ${feature.diameter} km</p><p>${escape(feature.origin)}</p>${sourceLink('https://planetarynames.wr.usgs.gov/','IAU / USGS · Gazetteer of Planetary Nomenclature')}`,'SURFACE FEATURE');}
 };
 try{if(new URL(location.href).searchParams.get('lite')==='1')throw new Error('Requested compatibility mode');scene=new AtlasScene($('#scene'),$('#scene-labels'),callbacks);}catch(error){console.warn('Using compatible canvas:',error.message);scene=new FlatScene($('#scene'),$('#scene-labels'),callbacks);}
-window.solarAtlas={get state(){return {mode:state.mode,ready:state.ready,year:state.year,selection:state.selection,playing:state.playing,lang:state.lang,globeLayer:state.globeLayer,compatibility:Boolean(scene.isFallback)};},get scene(){return scene;}};
+window.solarAtlas={get state(){return {mode:state.mode,ready:state.ready,year:state.year,selection:state.selection,playing:state.playing,lang:state.lang,globeLayer:state.globeLayer,compatibility:Boolean(scene.isFallback)};},get scene(){return scene;},get saturnTour(){return $('#saturn-tour').dataset.active||'';}};
 
 function updateLanguage(){
   document.documentElement.lang=state.lang==='en'?'en':'zh-CN';document.title=state.lang==='en'?'Solar Atlas · Explore our universe':'太阳系图谱 · Solar Atlas';
   $$('[data-i18n]').forEach(element=>element.textContent=t(element.dataset.i18n));
+  if(scene?.isFallback&&state.landing)$('#enter-saturn-label').textContent=t('saturnText');
+  if(!$('#saturn-tour').hidden){$('#saturn-title').textContent=nameOf(planetById('saturn'));updateSaturnTour($('#saturn-tour').dataset.active);}
   $('#landing-lang').innerHTML=state.lang==='zh'?'中 <span>/ EN</span>':'<span>中 /</span> EN';
-  $('#search-input').placeholder=state.lang==='en'?'Search worlds, moons, missions, or actions…':'搜索天体、卫星、任务，或输入一个操作…';
+  $('#search-keys [data-i18n="searchNavigate"]').textContent=state.lang==='en'?'to navigate':'选择';
+  $('#search-keys [data-i18n="searchOpen"]').textContent=state.lang==='en'?'to open':'前往';
+  $('#search-input').placeholder=state.lang==='en'?'Try “Jupiter”, “Voyager” or “M31”':'试试「木星」「旅行者」或「M31」';
+  if($('#search-dialog').open)renderSearch($('#search-input').value);
   renderPlanetRail();renderTimeline();if(state.panel)renderPanel(state.panel);if(!$('#archive').hidden&&state.selection)renderArchive(state.selection);savePreferences();
 }
 
@@ -59,7 +69,45 @@ function renderPlanetRail(){
 }
 
 function enter(mode='atlas'){
-  if(!state.ready)return;state.landing=false;document.body.classList.remove('is-landing');$('#landing').hidden=true;$('#explorer-ui').hidden=false;scene.setLanding(false);changeMode(mode);startQuotes();
+  if(!state.ready)return;clearSaturnTour();state.landing=false;document.body.classList.remove('is-landing');$('#landing').hidden=true;$('#explorer-ui').hidden=false;$('#mode-nav').hidden=false;scene.setLanding(false);changeMode(mode);startQuotes();
+}
+function updateSaturnTour(phase){
+  const tour=$('#saturn-tour');tour.dataset.active=phase;document.body.dataset.saturnTour=phase;
+  const cinematic=['approach','edge'].includes(phase);$('#timeline').hidden=cinematic;$('#quote').hidden=cinematic;$('#planet-rail').hidden=cinematic;$('.zoom-controls').hidden=cinematic;
+  const reduced=phase==='static',arrived=phase==='arrived'||reduced,english=state.lang==='en';
+  $('#saturn-status').textContent=phase==='approach'?t('saturnApproach'):phase==='edge'?t('saturnEdgeStatus'):reduced?t('saturnStatic'):english?t('saturnArrived'):matchMedia('(pointer:fine)').matches?t('saturnArrivedMouse'):t('saturnArrived');
+  const staticGuide=reduced||scene.isFallback;$('#saturn-controls-hint').textContent=staticGuide?t('saturnStaticControls'):'';$('#saturn-controls-hint').hidden=!staticGuide;
+  $('#saturn-skip').hidden=arrived;$('.saturn-angle-actions').hidden=!reduced;
+  $('#saturn-archive').hidden=!arrived;$('#saturn-exit').hidden=!arrived;
+  tour.hidden=false;
+  if(arrived&&phase==='arrived'&&!state.pendingSaturnHandoff)document.querySelector('#saturn-status').focus({preventScroll:true});
+  if(arrived&&state.pendingSaturnHandoff){state.pendingSaturnHandoff=false;$('#saturn-status').focus({preventScroll:true});}
+}
+function startSaturnTour(){
+  if(!state.ready)return;
+  const opening=Boolean($('#saturn-tour').hidden);clearSaturnTour();closeArchive();closePanel();stopTimeline();earthMap?.hide();$('#map-layer').hidden=true;
+  if(state.mode!=='atlas'){state.mode='atlas';state.selection=null;scene.setMode('atlas');}
+  state.landing=false;state.selection={type:'planet',id:'saturn'};state.year=currentYear;
+  document.body.classList.remove('is-landing');document.body.classList.add('is-saturn-tour');document.body.dataset.mode='atlas';
+  $('#landing').hidden=true;$('#explorer-ui').hidden=false;$('#flight-ui').hidden=true;scene.setLanding(false);
+  if($('#selected-crumb')){$('#selected-crumb').textContent=nameOf(planetById('saturn'));$('#selected-crumb').hidden=false;$('#open-detail').hidden=true;}
+  if($('#mode-nav'))$('#mode-nav').hidden=true;$('#saturn-title').textContent=nameOf(planetById('saturn'));
+  $('#saturn-status').textContent=t(scene.isFallback?'saturnNoGL':'saturnApproach');
+  setURL();const address=new URL(location.href);address.searchParams.set('tour','saturn');history.replaceState(null,'',address);
+  const staticGuide=reducedMotionEnabled()||scene.isFallback;
+  scene.startSaturnTour(staticGuide);updateSaturnTour(staticGuide?'static':'approach');
+  if(opening&&staticGuide)document.querySelector('#saturn-status').focus({preventScroll:true});
+  startQuotes();
+}
+function finishSaturnTour(){
+  if(!$('#saturn-tour').hidden)scene.finishSaturnTour?.();
+}
+function clearSaturnTour(){
+  clearTimeout(saturnArrivalTimer);saturnArrivalTimer=undefined;
+  $('#saturn-tour').hidden=true;delete $('#saturn-tour').dataset.active;
+  delete document.body.dataset.saturnTour;document.body.classList.remove('is-saturn-tour');
+  $('#timeline').hidden=false;$('#quote').hidden=false;$('#planet-rail').hidden=false;$('.zoom-controls').hidden=false;
+  $('#mode-nav').hidden=false;scene?.clearSaturnTour?.();
 }
 function home(){
   earthMap?.hide();$('#map-toggle').textContent='地图';$('#map-layer').hidden=true;
@@ -67,6 +115,7 @@ function home(){
 }
 function changeMode(mode){if(mode==='live'||mode==='flight'){state.year=currentYear;$('#year-range').value=currentYear;}stopTimeline();closePanel();closeArchive();state.selection=null;scene.setMode(mode);setURL();}
 function syncMode(mode){
+  if(!$('#saturn-tour').hidden&&mode!=='atlas')clearSaturnTour();
   if(mode!=='globe'&&earthMap?.active){earthMap.hide();$('#map-toggle').textContent='地图';$('#map-layer').hidden=true;}
   state.mode=mode;document.body.dataset.mode=mode;$$('#mode-nav button').forEach(button=>button.setAttribute('aria-selected',String(button.dataset.mode===mode)));
   $('#flight-ui').hidden=mode!=='flight';$('#globe-ui').hidden=mode!=='globe';$('#deep-status').hidden=mode!=='deep';$('#deep-directory').hidden=mode!=='deep';
@@ -79,6 +128,7 @@ function syncMode(mode){
 }
 
 function selectObject(selection,open=true){
+  if(!$('#saturn-tour').hidden){clearSaturnTour();}
   if(!selection?.id)return;closePanel();state.selection=selection;
   if(selection.type==='planet'){
     scene.focus(selection.id);const p=planetById(selection.id);if(!p)return;$('#selected-crumb').textContent=nameOf(p);$('#selected-crumb').hidden=false;$('#open-detail').hidden=false;
@@ -91,10 +141,12 @@ function selectObject(selection,open=true){
 }
 
 function setURL(){
-  const url=new URL(location.href);url.search='';if(scene.isFallback)url.searchParams.set('lite','1');if(!state.landing)url.searchParams.set('view',state.mode);if(state.selection){url.searchParams.set('type',state.selection.type);url.searchParams.set('object',state.selection.id);}if(state.lang==='en')url.searchParams.set('lang','en');history.replaceState(null,'',url);
+  const url=new URL(location.href);url.search='';if(scene.isFallback)url.searchParams.set('lite','1');if(!state.landing)url.searchParams.set('view',state.mode);if(state.selection){url.searchParams.set('type',state.selection.type);url.searchParams.set('object',state.selection.id);}if(!$('#saturn-tour').hidden)url.searchParams.set('tour','saturn');if(state.lang==='en')url.searchParams.set('lang','en');history.replaceState(null,'',url);
 }
 function restoreURL(){
   const params=new URL(location.href).searchParams;if(params.get('lang')==='en'){state.lang='en';updateLanguage();}
+  if(params.get('tour')==='saturn'){startSaturnTour();return;}
+  if(params.has('object')){$('#landing').hidden=false;$('#explorer-ui').hidden=true;return;}
   const view=params.get('view');if(['atlas','three','live','deep','flight','globe'].includes(view)){const object=params.get('object'),type=params.get('type');enter(view);if(object&&['planet','mission','deep'].includes(type))selectObject({type,id:object});}
 }
 
@@ -128,7 +180,7 @@ function renderArchive(selection){
   else if(selection.type==='deep')renderDeepArchive(DEEP_OBJECTS.find(d=>d.id===selection.id));
   if(selection.type==='deep'){const d=DEEP_OBJECTS.find(d=>d.id===selection.id);if(d?.photo)$('#archive-content .mission-mark')?.insertAdjacentHTML('afterend',`<figure class="observation-photo"><img src="${escape(d.photo.image)}" alt="${escape(d.photo.title)}"><figcaption>${escape(d.photo.credit)} · ${sourceLink(d.photo.page,'影像来源')}</figcaption></figure>`);}
 }
-function closeArchive(){$('#archive').hidden=true;}
+function closeArchive(){$('#archive').hidden=true;if(!$('#saturn-tour').hidden){const target=$('#saturn-archive');if(target.isConnected)target.focus({preventScroll:true});}}
 function focusWithoutPanel(id){scene.focus(id);state.selection={type:'planet',id};$('#selected-crumb').textContent=nameOf(planetById(id));$('#selected-crumb').hidden=false;$('#open-detail').hidden=false;setURL();}
 function renderPlanetArchive(p){
   if(!p){closeArchive();return;}
@@ -279,18 +331,47 @@ async function loadDSN(){
   try{const result=await queryEnvironment('dsn');const xml=new DOMParser().parseFromString(result.data,'application/xml');if(xml.querySelector('parsererror'))throw new Error('数据格式暂不可用');const dishes=[...xml.querySelectorAll('dish')].map(d=>({name:d.getAttribute('name'),azimuth:d.getAttribute('azimuthAngle'),elevation:d.getAttribute('elevationAngle'),signals:[...d.querySelectorAll('downSignal,upSignal')].map(s=>({craft:s.getAttribute('spacecraft')||s.getAttribute('spacecraftId'),band:s.getAttribute('band')||s.getAttribute('frequency'),rate:s.getAttribute('dataRate')}))}));if(!$('#dsn-result'))return;$('#dsn-result').innerHTML=`<div class="status-banner good"><b>NASA DSN Now · 已获取观测</b>获取时间 ${escape(result.fetchedAt)}<br>数据时间 ${escape(xml.documentElement.getAttribute('timestamp')||xml.documentElement.getAttribute('time')||'以提供方响应为准')}</div>${dishes.slice(0,20).map(d=>`<div class="data-note"><b>${escape(d.name)}</b> · 方位 ${escape(d.azimuth||'—')}° / 仰角 ${escape(d.elevation||'—')}°<br>${d.signals.map(s=>`${escape(s.craft||'未注明目标')} · ${escape(s.band||'—')} · ${escape(s.rate||'—')} bit/s`).join('<br>')||'当前无公开信号记录'}</div>`).join('')}`;scene.setDSN?.(dishes);if(state.panel==='science'&&scene.layers.has('dsn'))dsnTimer=setTimeout(loadDSN,5000);}catch(error){if($('#dsn-result'))$('#dsn-result').innerHTML=`<div class="status-banner"><b>DSN 数据暂不可用</b>${escape(error.message)}<br>未生成虚构通信信号。${sourceLink('https://eyes.nasa.gov/dsn/dsn.html','打开 NASA DSN Now')}</div>`;}
 }
 
-function openSearch(){if(!state.ready)return;if(state.landing)enter();$('#search-dialog').showModal();$('#search-input').value='';state.searchIndex=0;renderSearch('');$('#search-input').focus();}
+function openSearch(){
+  if(!state.ready||$('#search-dialog').open)return;
+  if(state.landing){enter();$('#open-search').focus();}
+  $('#search-input').value='';state.searchIndex=0;renderSearch('');$('#search-dialog').showModal();
+}
 function searchItems(query){
-  const q=query.trim().toLowerCase();const items=[...PLANETS,...MOONS,...SMALL_BODIES].map(p=>({id:p.id,type:'planet',name:nameOf(p),en:p.en,detail:p.kind,icon:'◉'}));
-  items.push(...MISSIONS.map(m=>({id:m.id,type:'mission',name:nameOf(m),en:m.en,detail:String(m.year),icon:'◇'})),...DEEP_OBJECTS.map(d=>({id:d.id,type:'deep',name:d.name,en:d.en,detail:d.type,icon:'✦'})));
-  const actions=[['three','切换到三维视图','3D VIEW'],['live','切换到实时位置','LIVE POSITIONS'],['deep','打开深空探索','DEEP SKY'],['flight','进入飞行模拟','FLIGHT SIMULATION'],['globe','探索地球与海洋','EARTH & OCEAN'],['science','科学图层','SCIENCE LAYERS'],['guide','操作指南与快捷键','CONTROLS']].map(([id,name,en])=>({id,name,en,type:'action',detail:'操作',icon:'↗'}));items.push(...actions);
-  if(!q)return [...items.filter(i=>i.type==='planet'),...actions].slice(0,18);
-  return items.filter(item=>`${item.name} ${item.en} ${item.id}`.toLowerCase().includes(q)).slice(0,50);
+  const queryText=query.trim().toLowerCase(),english=state.lang==='en';
+  const worlds=[...PLANETS,...MOONS,...SMALL_BODIES].map(body=>({id:body.id,type:'planet',name:nameOf(body),zh:body.name,en:body.en,detail:english?'World':body.kind,icon:'atlas'}));
+  const missions=MISSIONS.map(mission=>({id:mission.id,type:'mission',name:nameOf(mission),zh:mission.name,en:mission.en,detail:String(mission.year),icon:'rocket'}));
+  const deep=DEEP_OBJECTS.map(object=>({id:object.id,type:'deep',name:object.name,en:object.en,detail:english?'Deep sky':object.type,icon:'deep'}));
+  const actions=[['three','切换到三维视图','3D VIEW'],['live','切换到实时位置','LIVE POSITIONS'],['deep','打开深空探索','DEEP SKY'],['flight','进入飞行模拟','FLIGHT SIMULATION'],['globe','探索地球与海洋','EARTH & OCEAN'],['science','科学图层','SCIENCE LAYERS'],['guide','操作指南与快捷键','CONTROLS']].map(([id,zh,en])=>({id,name:english?en:zh,zh,en,type:'action',detail:english?'Action':'操作',icon:'arrow'}));
+  if(!queryText)return ['earth','mars','jupiter'].map(id=>worlds.find(item=>item.id===id)).concat(actions.filter(action=>['deep','globe','guide'].includes(action.id)));
+  return [...worlds,...missions,...deep,...actions].filter(item=>`${item.zh||item.name} ${item.en} ${item.id}`.toLowerCase().includes(queryText)).slice(0,50);
 }
 function renderSearch(query){
-  state.searchResults=searchItems(query);state.searchIndex=clamp(state.searchIndex,0,Math.max(0,state.searchResults.length-1));
-  $('#search-results').innerHTML=state.searchResults.map((item,i)=>`<button class="search-result ${i===state.searchIndex?'active':''}" id="search-option-${i}" role="option" aria-selected="${i===state.searchIndex}" data-search-index="${i}"><span class="result-icon">${item.icon}</span><span><strong>${escape(item.name)}</strong><small>${escape(item.en)}</small></span><span>${escape(item.detail)}</span></button>`).join('')||'<p class="empty-search">没有找到相关天体或任务。</p>';
-  $('#search-input').setAttribute('aria-activedescendant',`search-option-${state.searchIndex}`);$('#search-count').textContent=`${state.searchResults.length} 项`;
+  const english=state.lang==='en',searching=Boolean(query.trim());
+  state.searchResults=searchItems(query);const count=state.searchResults.length;
+  state.searchIndex=count?clamp(state.searchIndex,0,count-1):-1;
+  $('#search-heading').textContent=english?'Search the atlas':'搜索图谱';
+  $('#search-input').setAttribute('aria-label',$('#search-heading').textContent);
+  $('#search-input').placeholder=english?'Try “Jupiter”, “Voyager” or “M31”':'试试「木星」「旅行者」或「M31」';
+  $('#close-search').setAttribute('aria-label',english?'Close search':'关闭搜索');
+  $('#search-suggestions').textContent=english?'Suggested starting points':'推荐起点';
+  $('#search-suggestions').hidden=searching;
+  $('#search-empty').textContent=english?'No matches. Try another name or a catalogue number such as M31.':'没有匹配结果。试试其他名称，或输入 M31 这样的目录编号。';
+  $('#search-keys [data-i18n="searchNavigate"]').textContent=english?'to navigate':'选择';
+  $('#search-keys [data-i18n="searchOpen"]').textContent=english?'to open':'前往';
+  $('#search-empty').hidden=count>0;
+  $('#search-results').hidden=count===0;
+  $('#search-results').setAttribute('aria-label',english?'Search results':'搜索结果');
+  $('#search-results').innerHTML=state.searchResults.map((item,index)=>`<button class="search-result" id="search-option-${index}" role="option" tabindex="-1" data-search-index="${index}"><span class="result-icon" aria-hidden="true">${icon(item.icon)}</span><span><strong>${escape(item.name)}</strong>${item.name===item.en?'':`<small>${escape(item.en)}</small>`}</span><span>${escape(item.detail)}</span></button>`).join('');
+  const status=searching?(english?`${count} ${count===1?'result':'results'}${count===50?' shown':''}`:`${count===50?'显示前 ':''}${count} 项搜索结果`):'';
+  if($('#search-count').textContent!==status)$('#search-count').textContent=status;
+  syncSearchSelection();
+}
+function syncSearchSelection(){
+  $$('#search-results [role=option]').forEach((option,index)=>{
+    const active=index===state.searchIndex;option.classList.toggle('active',active);option.setAttribute('aria-selected',String(active));
+  });
+  if(state.searchIndex<0)$('#search-input').removeAttribute('aria-activedescendant');
+  else $('#search-input').setAttribute('aria-activedescendant',`search-option-${state.searchIndex}`);
 }
 function activateSearch(index){
   const result=state.searchResults[index];if(!result)return;$('#search-dialog').close();
@@ -331,14 +412,16 @@ function applySetting(name,value){
   if(name==='fps'){state.fps=value;$('#fps').hidden=!value;}
   else if(name==='vignette')$('.vignette').hidden=!value;
   else if(name==='grain')$('.grain').hidden=!value;
-  else if(name==='reduced'){document.body.classList.toggle('reduce-motion',value);scene.setSetting('auto',false);}
+  else if(name==='reduced'){document.body.classList.toggle('reduce-motion',value);scene.setReducedMotion?.(reducedMotionEnabled());scene.setSetting('auto',false);if(value&&!$('#saturn-tour').hidden&&scene.saturnTour?.phase==='static'){scene.setSaturnAngle?.(false);updateSaturnTour('static');}}
   else scene.setSetting(name,value);
   updateScienceBadge();
 }
 function updateScienceBadge(){const count=[...scene.layers].length;$('#science-badge').textContent=count;$('#science-badge').hidden=count===0;}
 function immersive(){state.immersive=!state.immersive;document.body.classList.toggle('is-immersive',state.immersive);}
-async function useCompatibility(message){if(scene.isFallback)return;scene.dispose?.();scene=new FlatScene($('#scene'),$('#scene-labels'),callbacks);await scene.init();closePanel();toast(message,6000);}
+async function useCompatibility(message,preserveSaturn=false){if(scene.isFallback)return;clearSaturnTour();scene.dispose?.();scene=new FlatScene($('#scene'),$('#scene-labels'),callbacks);await scene.init();closePanel();if(preserveSaturn){state.landing=false;state.mode='atlas';state.selection={type:'planet',id:'saturn'};$('#landing').hidden=true;$('#explorer-ui').hidden=false;$('#mode-nav').hidden=true;document.body.classList.remove('is-landing');document.body.classList.add('is-saturn-tour');$('#selected-crumb').textContent=nameOf(planetById('saturn'));$('#selected-crumb').hidden=false;scene.startSaturnTour(true);updateSaturnTour('static');setURL();}toast(message,6000);}
 function navigatePlanet(direction){const worlds=[...PLANETS,MOON],index=worlds.findIndex(p=>p.id===state.selection?.id);selectObject({type:'planet',id:worlds[(index+direction+worlds.length)%worlds.length].id});}
+function applySystemMotionPreference(){const reduced=reducedMotionEnabled();scene?.setReducedMotion?.(reduced);if(reduced&&!$('#saturn-tour').hidden&&scene.saturnTour?.phase==='static'){scene.setSaturnAngle?.(false);updateSaturnTour('static');}}
+motionPreference.addEventListener?.('change',applySystemMotionPreference);
 const actions={
   about:showAbout,guide:showGuide,audio:toggleAudio,language(){state.lang=state.lang==='zh'?'en':'zh';updateLanguage();setURL();},
   earth(){if(state.landing)enter('globe');else changeMode('globe');},
@@ -352,7 +435,8 @@ const actions={
   async share(){try{await navigator.clipboard.writeText(location.href);toast('已复制当前探索链接。');}catch{showInfo('当前探索链接',`<p style="word-break:break-all">${escape(location.href)}</p>`);}}
 };
 
-$('#enter-atlas').addEventListener('click',()=>enter('atlas'));$('#enter-deep').addEventListener('click',()=>enter('deep'));
+$('#enter-atlas').addEventListener('click',()=>enter('atlas'));
+$('#enter-saturn').addEventListener('click',startSaturnTour);
 $('#landing-lang').addEventListener('click',actions.language);$('#landing-audio').addEventListener('click',toggleAudio);
 $('#home').addEventListener('click',home);$('#root-crumb').addEventListener('click',()=>changeMode(state.mode==='deep'?'atlas':state.mode));
 $('#selected-crumb').addEventListener('click',()=>{if(state.selection)renderArchive(state.selection);});
@@ -371,6 +455,13 @@ $('#back-solar').addEventListener('click',()=>{changeMode('atlas');selectObject(
 $('#flight-reset').addEventListener('click',()=>{scene.startFlight();renderFlightTargets('earth');});$('#flight-exit').addEventListener('click',()=>changeMode('three'));
 $('#flight-align').addEventListener('click',()=>scene.alignFlight());$('#flight-auto').addEventListener('click',()=>scene.autopilot());
 $('#flight-help-toggle').addEventListener('click',()=>{const body=$('#flight-help-content');body.hidden=!body.hidden;$('#flight-help-toggle').textContent=body.hidden?'展开':'收起';});
+$('#saturn-skip').addEventListener('click',finishSaturnTour);
+$('#saturn-tour').addEventListener('pointerdown',event=>{if(event.target.closest('button'))return;if(['approach','edge'].includes($('#saturn-tour').dataset.active))finishSaturnTour();});
+$('#saturn-exit').addEventListener('click',()=>{const position=scene.camera?.position?.clone?.(),target=scene.controls?.target?.clone?.();clearSaturnTour();scene.setMode('atlas');if(position&&target){scene.camera.position.copy(position);scene.controls.target.copy(target);scene.controls.update();}state.selection=null;$('#selected-crumb').hidden=true;setURL();});
+$('#saturn-archive').addEventListener('click',()=>renderArchive({type:'planet',id:'saturn'}));
+$('#saturn-open-view').addEventListener('click',()=>{if(state.selection?.id!=='saturn')return;scene.setSaturnAngle(true);$('#saturn-open-view').setAttribute('aria-pressed','true');$('#saturn-edge-view').setAttribute('aria-pressed','false');$('#saturn-status').textContent=t('saturnOpenStatus');});
+$('#saturn-edge-view').addEventListener('click',()=>{if(state.selection?.id!=='saturn')return;scene.setSaturnAngle(false);$('#saturn-open-view').setAttribute('aria-pressed','false');$('#saturn-edge-view').setAttribute('aria-pressed','true');$('#saturn-status').textContent=t('saturnEdgeView');});
+const archiveFocus=document.createElement('button');archiveFocus.type='button';archiveFocus.id='saturn-focus-return';archiveFocus.className='sr-only';archiveFocus.tabIndex=-1;archiveFocus.setAttribute('aria-label','返回土星导览');$('#saturn-tour').prepend(archiveFocus);archiveFocus.addEventListener('click',()=>{closeArchive();$('#saturn-archive').focus();});
 for(const button of $$('[data-thrust]')){
   const release=()=>{scene.keys?.delete(button.dataset.thrust);button.classList.remove('pressed');};
   button.addEventListener('pointerdown',event=>{event.preventDefault();button.setPointerCapture(event.pointerId);scene.keys?.add(button.dataset.thrust);button.classList.add('pressed');});
@@ -380,7 +471,8 @@ $('#touch-stop').addEventListener('click',()=>{scene.keys?.clear();scene.flight.
 $('#touch-cruise').addEventListener('input',event=>{scene.flight.speed=Math.min(280000,10**Number(event.target.value));});
 $('#search-input').addEventListener('input',event=>{state.searchIndex=0;renderSearch(event.target.value);});
 $('#search-input').addEventListener('keydown',event=>{
-  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();const count=state.searchResults.length;if(!count)return;state.searchIndex=(state.searchIndex+(event.key==='ArrowDown'?1:-1)+count)%count;renderSearch(event.target.value);$(`#search-option-${state.searchIndex}`)?.scrollIntoView({block:'nearest'});}
+  if(event.isComposing||event.keyCode===229)return;
+  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();const count=state.searchResults.length;if(!count)return;state.searchIndex=(state.searchIndex+(event.key==='ArrowDown'?1:-1)+count)%count;syncSearchSelection();$(`#search-option-${state.searchIndex}`)?.scrollIntoView({block:'nearest'});}
   if(event.key==='Enter'){event.preventDefault();activateSearch(state.searchIndex);}
 });
 for(const dialog of [$('#search-dialog'),$('#info-dialog')])dialog.addEventListener('click',event=>{if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.close();}});
@@ -442,19 +534,21 @@ $('#geo-search').addEventListener('submit',async event=>{
 
 document.addEventListener('keydown',event=>{
   if(event.key.toLowerCase()==='k'&&(event.ctrlKey||event.metaKey)){event.preventDefault();if(!$('#info-dialog').open&&!$('#search-dialog').open)openSearch();return;}
+  if(!$('#landing').hidden&&event.key==='Enter'){if(event.target.closest('button,a,input,textarea,select,[role=button]'))return;event.preventDefault();startSaturnTour();return;}
   if(event.target.closest('input,textarea,select,[contenteditable]')||$('#search-dialog').open||$('#info-dialog').open)return;
   const key=event.key.toLowerCase();
   if(key==='escape'){
+    if(!$('#saturn-tour').hidden){if(!$('#archive').hidden){closeArchive();return;}if(['approach','edge'].includes($('#saturn-tour').dataset.active))finishSaturnTour();else if(scene.saturnTour?.phase==='arrived'){clearSaturnTour();scene.setMode('atlas');state.selection=null;$('#selected-crumb').hidden=true;setURL();}else clearSaturnTour();return;}
     if(!$('#archive').hidden){closeArchive();return;}if(state.panel){closePanel();return;}if(state.immersive){immersive();return;}if(state.mode==='flight'){changeMode('three');return;}if(state.mode==='globe'){changeMode('atlas');return;}if(state.selection){state.selection=null;changeMode(state.mode);return;}return;
   }
-  if(state.landing){if(key==='enter'){event.preventDefault();enter();}return;}
+  if(state.landing){if(key==='enter'){event.preventDefault();startSaturnTour();}return;}
   if(state.mode==='flight')return;
   if(['1','2','3','4','5'].includes(key)){changeMode(['atlas','three','live','deep','flight'][Number(key)-1]);return;}
   if(key==='h')home();if(key==='i')immersive();if(key==='s')openPanel('science');if(key==='l')openPanel('layers');if(key==='g')openPanel('quality');if(key==='?')showGuide();
   if(key==='d'&&state.selection)$('#archive').hidden?renderArchive(state.selection):closeArchive();
   if(key===' '&&['atlas','three','live'].includes(state.mode)){event.preventDefault();playTimeline();}
 });
-$('#landing').addEventListener('wheel',event=>{if(event.deltaY>55&&$('#landing').scrollHeight<innerHeight+40)enter();},{passive:true});
+$('#landing').addEventListener('wheel',event=>{if(event.deltaY>55&&$('#landing').scrollHeight<innerHeight+40)startSaturnTour();},{passive:true});
 
 updateLanguage();updateScienceBadge();
 scene.init().catch(async error=>{

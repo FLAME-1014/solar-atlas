@@ -20,6 +20,11 @@ function glowTexture() {
   gradient.addColorStop(0,'rgba(255,239,202,1)');gradient.addColorStop(.16,'rgba(255,210,125,.85)');gradient.addColorStop(.35,'rgba(255,173,65,.25)');gradient.addColorStop(1,'rgba(255,153,42,0)');
   c.fillStyle=gradient;c.fillRect(0,0,128,128);return new THREE.CanvasTexture(canvas);
 }
+function saturnRingPreview() {
+  const canvas=document.createElement('canvas');canvas.width=256;canvas.height=1;const ctx=canvas.getContext('2d'),gradient=ctx.createLinearGradient(0,0,256,0);
+  for(const [stop,color] of [[0,'#8b755000'],[.12,'#9d896658'],[.29,'#cdbb90aa'],[.33,'#c7b184db'],[.63,'#dbc69ade'],[.66,'#80694e4d'],[.73,'#b8a178bc'],[.96,'#9e8864ad'],[1,'#9e886444']])gradient.addColorStop(stop,color);
+  ctx.fillStyle=gradient;ctx.fillRect(0,0,256,1);const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;return texture;
+}
 function atmosphere(radius,color=0x65badd) {
   return new THREE.Mesh(new THREE.SphereGeometry(radius,40,24),new THREE.ShaderMaterial({
     uniforms:{color:{value:new THREE.Color(color)}},vertexShader:'varying vec3 n; varying vec3 v; void main(){ vec4 p=modelViewMatrix*vec4(position,1.); n=normalize(normalMatrix*normal);v=normalize(-p.xyz);gl_Position=projectionMatrix*p;}',
@@ -30,7 +35,7 @@ function atmosphere(radius,color=0x65badd) {
 export class AtlasScene {
   constructor(container,labels,callbacks={}) {
     this.container=container;this.labelsElement=labels;this.callbacks=callbacks;
-    this.mobile=matchMedia('(max-width: 760px)').matches||Boolean(navigator.deviceMemory&&navigator.deviceMemory<=4);this.disposed=false;
+    this.mobile=matchMedia('(max-width: 760px)').matches||Boolean(navigator.deviceMemory&&navigator.deviceMemory<=4);this.reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;this.disposed=false;
     this.mode='atlas';this.landing=true;this.date=Date.now();this.selected=null;
     this.settings={orbits:true,labels:true,asteroids:true,missions:true,stars:true,clouds:true,grid:false,auto:false};
     this.layers=new Set(['asteroids']);this.records=new Map();this.labelItems=[];this.keys=new Set();this.textures={};this.constellations=[];this.catalogStars=0;
@@ -70,14 +75,16 @@ export class AtlasScene {
     return new Promise((resolve,reject)=>{let ended=false;const timeout=setTimeout(()=>{ended=true;reject(new Error('Texture timeout'));},10000);new THREE.TextureLoader().load(url,tex=>{if(ended||this.disposed){tex.dispose();return;}ended=true;clearTimeout(timeout);tex.colorSpace=THREE.SRGBColorSpace;tex.anisotropy=Math.min(this.renderer.capabilities.getMaxAnisotropy(),this.mobile?2:8);resolve(tex);},undefined,error=>{if(ended)return;ended=true;clearTimeout(timeout);reject(error);});});
   }
   async loadTextures(){
-    const names=[...PLANETS.map(p=>p.id),'moon','earth-night','earth-clouds','saturn-ring',...MOONS.filter(p=>p.texture).map(p=>p.id).filter(id=>id!=='moon')];
-    for(let i=0;i<names.length;i+=3){await Promise.allSettled(names.slice(i,i+3).map(async name=>{try{const tex=await this.loadTexture(name);if(this.disposed)return;this.textures[name]=tex;
+    const names=['saturn-ring','saturn','sun',...PLANETS.map(p=>p.id).filter(id=>id!=='saturn'&&id!=='sun'),'moon','earth-night','earth-clouds',...MOONS.filter(p=>p.texture).map(p=>p.id).filter(id=>id!=='moon')];
+    const load=async name=>{try{const tex=await this.loadTexture(name);if(this.disposed)return;this.textures[name]=tex;
       const record=this.records.get(name);if(record){record.mesh.material.map=tex;record.mesh.material.color.set(name==='sun'?0xffe0a3:0xffffff);record.mesh.material.needsUpdate=true;}
       if(name==='earth'){this.globe.material.map=tex;this.globe.material.needsUpdate=true;}
       if(name==='earth-night'){const mat=this.records.get('earth').mesh.material;mat.emissiveMap=tex;mat.emissive.set(0xffffff);mat.emissiveIntensity=.18;mat.needsUpdate=true;}
       if(name==='earth-clouds'){for(const mesh of [this.records.get('earth').clouds,this.globeClouds]){mesh.material.map=tex;mesh.material.alphaMap=tex;mesh.material.needsUpdate=true;}}
-      if(name==='saturn-ring'&&this.saturnRing){this.saturnRing.material.map=tex;this.saturnRing.material.needsUpdate=true;}
-    }catch{this.textureWarnings=(this.textureWarnings||0)+1;}}));}
+      if(name==='saturn-ring'&&this.saturnRing){this.saturnRing.material.map.dispose();this.saturnRing.material.map=tex;this.saturnRing.material.needsUpdate=true;}
+    }catch{this.textureWarnings=(this.textureWarnings||0)+1;}};
+    await Promise.allSettled(names.slice(0,2).map(load));
+    for(let i=2;i<names.length;i+=3)await Promise.allSettled(names.slice(i,i+3).map(load));
     this.callbacks.onTextures?.({failed:this.textureWarnings||0});
   }
 
@@ -96,7 +103,8 @@ export class AtlasScene {
       if(p.id==='saturn') {
         const geometry=new THREE.RingGeometry(1.35,2.35,128);const pos=geometry.attributes.position;const uv=geometry.attributes.uv;
         for(let i=0;i<pos.count;i++){const r=Math.hypot(pos.getX(i),pos.getY(i));uv.setXY(i,(r-1.35),.5);}
-        const ring=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({side:THREE.DoubleSide,transparent:true,opacity:.9,color:0xd9c69e,depthWrite:false}));ring.rotation.x=-Math.PI/2;mesh.add(ring);this.saturnRing=ring;
+        this.textures.ringPreview=saturnRingPreview();
+        const ring=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({map:this.textures.ringPreview,side:THREE.DoubleSide,transparent:true,opacity:.9,color:0xd9c69e,depthWrite:false}));ring.rotation.x=-Math.PI/2;mesh.add(ring);this.saturnRing=ring;
       }
       if(p.a&&!p.parent) {
         const points=Array.from({length:301},(_,i)=>{const q=orbitalPosition(p,Date.UTC(2000,0,1,12)+i/300*p.period*86400000);return V(...q).multiplyScalar(p.distance/p.a);});
@@ -194,10 +202,12 @@ export class AtlasScene {
 
   setLanding(value) {
     this.landing=value;
+    if(value)this.clearSaturnTour();
     if(value){this.mode='atlas';this.selected=null;this.solarRoot.visible=true;this.globeRoot.visible=false;this.constellationRoot.visible=false;this.controls.enabled=true;this.controls.minDistance=.002;this.controls.maxDistance=800;this.controls.target.set(45,0,0);this.camera.position.set(64,128,223);this.camera.fov=48;this.camera.updateProjectionMatrix();this.updatePositions();}
   }
 
   setMode(mode) {
+    this.clearSaturnTour();
     const previous=this.mode;this.mode=mode;this.landing=false;this.selected=null;this.camera.fov=48;this.camera.up.set(0,1,0);this.camera.updateProjectionMatrix();this.controls.enabled=!['deep','flight'].includes(mode);this.controls.autoRotate=false;this.transition=null;
     this.solarRoot.visible=!['deep','globe'].includes(mode);this.globeRoot.visible=mode==='globe';this.constellationRoot.visible=mode==='deep';
     if(mode==='atlas'){this.controls.target.set(112,0,0);this.camera.position.set(112,65,194);this.camera.fov=44;this.camera.updateProjectionMatrix();}
@@ -211,16 +221,41 @@ export class AtlasScene {
     if(previous==='flight')this.flight.autopilot=false;
     this.callbacks.onMode?.(mode);
   }
+  setReducedMotion(value){this.reducedMotion=Boolean(value);this.controls.autoRotate=false;if(this.reducedMotion&&['approach','edge'].includes(this.saturnTour?.phase)){this.saturnTour.phase='static';this.saturnTour.framing=[1,5];this.placeSaturnCamera(...this.saturnTour.framing);this.controls.enabled=true;this.callbacks.onSaturnTour?.('static');}}
 
   focus(id,instant=false) {
+    this.clearSaturnTour();
     if(this.mode==='globe'){this.flyToGeo(119,25);return;}
     const record=this.records.get(id);if(!record)return;
     if(['deep','flight'].includes(this.mode))this.setMode('three');
     this.selected=id;this.controls.autoRotate=false;this.transition=null;
     const size=record.visualSize;const distance=Math.max(size*(id==='saturn'?8:6),3);
     const target=record.position.clone();const position=target.clone().add(V(distance*.48,distance*.25,distance));
-    if(instant){this.camera.position.copy(position);this.controls.target.copy(target);this.controls.update();}else this.transition={start:this.elapsed,duration:1.2,from:this.camera.position.clone(),to:position,targetFrom:this.controls.target.clone(),targetTo:target};
+    if(instant||this.reducedMotion){this.camera.position.copy(position);this.controls.target.copy(target);this.controls.update();}else this.transition={start:this.elapsed,duration:1.2,from:this.camera.position.clone(),to:position,targetFrom:this.controls.target.clone(),targetTo:target};
   }
+
+  startSaturnTour(reducedMotion){
+    const normal=V(0,0,1).applyQuaternion(this.saturnRing.getWorldQuaternion(new THREE.Quaternion())),heading=V(.48,.25,1);
+    heading.addScaledVector(normal,-heading.dot(normal)).normalize();this.transition=null;this.selected='saturn';
+    this.saturnTour={normal,heading,start:performance.now(),phase:reducedMotion?'static':'approach',framing:reducedMotion?[1,5]:[0,28]};
+    this.controls.enabled=true;this.placeSaturnCamera(...this.saturnTour.framing);
+  }
+  placeSaturnCamera(approach,angle){
+    const tour=this.saturnTour,record=this.records.get('saturn'),direction=tour.heading.clone().multiplyScalar(Math.cos(angle*DEG)).addScaledVector(tour.normal,Math.sin(angle*DEG));
+    const aspect=this.camera.aspect,tangent=Math.tan(this.camera.fov*DEG/2),closeWidth=lerp(.68,.56,clamp((aspect-.55)/1.05,0,1)),width=.24*(closeWidth/.24)**approach;
+    const distance=this.saturnRing.geometry.parameters.outerRadius*record.mesh.scale.x/(width*tangent*Math.min(aspect,1.6));
+    const right=V().crossVectors(this.camera.up,direction).normalize(),up=V().crossVectors(direction,right);
+    this.controls.target.copy(record.position).addScaledVector(up,-.06*distance*tangent);this.camera.position.copy(this.controls.target).addScaledVector(direction,distance);this.controls.update();
+  }
+  updateSaturnTour(now){
+    const tour=this.saturnTour;if(!tour||!['approach','edge'].includes(tour.phase))return;
+    const seconds=(now-tour.start)/1000,ease=value=>{const p=clamp(value,0,1);return p*p*(3-2*p);},approach=ease(seconds/5.8),turn=ease((seconds-5.8)/4.6);
+    tour.framing=[approach,lerp(28,5,turn)];this.placeSaturnCamera(...tour.framing);
+    if(seconds>=10.4)this.finishSaturnTour();else if(seconds>=5.8&&tour.phase==='approach'){tour.phase='edge';this.callbacks.onSaturnTour?.('edge');}
+  }
+  finishSaturnTour(){const tour=this.saturnTour;if(!tour||!['approach','edge'].includes(tour.phase))return;tour.phase='arrived';this.controls.enabled=true;this.callbacks.onSaturnTour?.('arrived');}
+  setSaturnAngle(open){if(this.saturnTour?.phase!=='static')return;const damping=this.controls.enableDamping;this.controls.enableDamping=false;this.controls.update();this.saturnTour.framing=[1,open?28:5];this.placeSaturnCamera(...this.saturnTour.framing);this.controls.enableDamping=damping;}
+  clearSaturnTour(){if(!this.saturnTour)return;this.saturnTour=null;this.controls.enabled=true;}
 
   resetView() {this.setMode(this.mode==='globe'?'globe':this.mode==='deep'?'deep':'atlas');}
   zoom(direction) {if(this.mode==='deep'){this.camera.fov=clamp(this.camera.fov+direction*8,8,110);this.camera.updateProjectionMatrix();}else{const d=this.camera.position.clone().sub(this.controls.target);d.multiplyScalar(direction>0?1.3:.77);this.camera.position.copy(this.controls.target).add(d);}}
@@ -311,7 +346,7 @@ export class AtlasScene {
 
   addEvents() {
     const canvas=this.renderer.domElement;
-    canvas.addEventListener('pointerdown',event=>{this.activePointers.set(event.pointerId,{x:event.clientX,y:event.clientY});if(this.activePointers.size===2){const p=[...this.activePointers.values()];this.pinchDistance=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);}this.pointer={down:true,moved:false,startX:event.clientX,startY:event.clientY,lastX:event.clientX,lastY:event.clientY};if(['deep','flight'].includes(this.mode))canvas.setPointerCapture(event.pointerId);});
+    canvas.addEventListener('pointerdown',event=>{if(this.saturnTour?.phase==='approach'||this.saturnTour?.phase==='edge')this.finishSaturnTour();this.activePointers.set(event.pointerId,{x:event.clientX,y:event.clientY});if(this.activePointers.size===2){const p=[...this.activePointers.values()];this.pinchDistance=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);}this.pointer={down:true,moved:false,startX:event.clientX,startY:event.clientY,lastX:event.clientX,lastY:event.clientY};if(['deep','flight'].includes(this.mode))canvas.setPointerCapture(event.pointerId);});
     canvas.addEventListener('pointermove',event=>{
       if(!this.pointer.down)return;this.activePointers.set(event.pointerId,{x:event.clientX,y:event.clientY});if(this.mode==='deep'&&this.activePointers.size===2){const p=[...this.activePointers.values()],distance=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);if(distance>0&&this.pinchDistance){this.camera.fov=clamp(this.camera.fov*this.pinchDistance/distance,6,110);this.camera.updateProjectionMatrix();}this.pinchDistance=distance;this.pointer.moved=true;return;}const dx=event.clientX-this.pointer.lastX,dy=event.clientY-this.pointer.lastY;this.pointer.lastX=event.clientX;this.pointer.lastY=event.clientY;
       if(Math.abs(event.clientX-this.pointer.startX)+Math.abs(event.clientY-this.pointer.startY)>5)this.pointer.moved=true;
@@ -332,7 +367,7 @@ export class AtlasScene {
       if(this.mode==='flight'){event.preventDefault();this.flight.speed=clamp(this.flight.speed*Math.exp(-event.deltaY*.002),.01,299792*.9);}
     },{passive:false});
     window.addEventListener('keydown',event=>{
-      if(event.target.closest('input,textarea,select,[contenteditable]')||event.ctrlKey||event.metaKey||event.altKey)return;const key=event.key.toLowerCase();this.keys.add(key);
+      if(event.target.closest('button,a,input,textarea,select,[contenteditable],[role=button]')||event.ctrlKey||event.metaKey||event.altKey)return;const key=event.key.toLowerCase();this.keys.add(key);
       if(this.mode==='flight'){
         if(['w','a','s','d','r','f','q','e',' '].includes(key))event.preventDefault();
         if(key==='x'){this.flight.velocity.set(0,0,0);this.flight.autopilot=false;}if(key==='z')this.alignFlight();if(key==='g')this.autopilot();if(key==='t'){const ids=[...this.records.keys()];this.setFlightTarget(ids[(ids.indexOf(this.flight.target)+1)%ids.length]);this.callbacks.onFlightTarget?.(this.flight.target);}
@@ -342,13 +377,13 @@ export class AtlasScene {
     canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();if(!this.disposed)this.callbacks.onContextLost?.();});
   }
 
-  resize(){const w=this.container.clientWidth||innerWidth,h=this.container.clientHeight||innerHeight;this.renderer.setSize(w,h);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();}
+  resize(){const w=this.container.clientWidth||innerWidth,h=this.container.clientHeight||innerHeight;this.renderer.setSize(w,h);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();if(this.saturnTour&&this.saturnTour.phase!=='arrived')this.placeSaturnCamera(...this.saturnTour.framing);}
   dispose(){this.disposed=true;this.renderer.setAnimationLoop(null);this.resizeObserver?.disconnect();this.controls.dispose();this.scene.traverse(object=>{object.geometry?.dispose();if(object.material){for(const material of Array.isArray(object.material)?object.material:[object.material])material.dispose();}});for(const tex of Object.values(this.textures))tex.dispose();this.renderer.dispose();}
 
   updateLabels() {
     const width=this.container.clientWidth,height=this.container.clientHeight;this.camera.updateMatrixWorld();const occupied=[];
     for(const item of this.labelItems){
-      const isSky=['deep','constellation'].includes(item.kind);const visible=this.settings.labels&&!this.landing&&this.mode!=='flight'&&this.mode!=='globe'&&(isSky?this.mode==='deep':this.mode!=='deep');
+      const isSky=['deep','constellation'].includes(item.kind);const visible=!this.saturnTour&&this.settings.labels&&!this.landing&&this.mode!=='flight'&&this.mode!=='globe'&&(isSky?this.mode==='deep':this.mode!=='deep');
       if(!visible||(!isSky&&!item.record.group.visible)||(!isSky&&item.record.data.id==='sun')||(!isSky&&item.record.data.parent&&![item.record.data.parent,item.record.data.id].includes(this.selected))){item.element.hidden=true;continue;}
       const pos=item.record?item.record.position.clone():item.position.clone();if(item.record)pos.y+=item.record.visualSize*1.3;
       const local=pos.clone().applyMatrix4(this.camera.matrixWorldInverse);const projected=pos.project(this.camera);
@@ -365,9 +400,11 @@ export class AtlasScene {
     if(this.mode==='live'&&!this.playing){this.date=Date.now();this.updatePositions();}
     if(this.transition){const tr=this.transition;const t=clamp((this.elapsed-tr.start)/tr.duration,0,1);const e=1-(1-t)**3;this.camera.position.lerpVectors(tr.from,tr.to,e);this.controls.target.lerpVectors(tr.targetFrom,tr.targetTo,e);if(t===1)this.transition=null;}
     if(this.mode==='flight')this.updateFlight(dt);
-    if(this.controls.enabled){this.controls.autoRotate=this.settings.auto&&!this.transition;this.controls.autoRotateSpeed=.5;this.controls.update();}
-    for(const r of this.records.values()){r.mesh.rotation.y+=dt*(r.data.id==='sun'?.015:.04);r.group.visible=!this.selected||r.data.id===this.selected||r.data.parent===this.selected;}for(const m of this.missionRecords){m.group.visible=this.settings.missions&&this.mode!=='flight'&&new Date(this.date).getFullYear()>=m.data.year&&(!this.missionCategory||this.missionCategory==='all'||m.data.category===this.missionCategory)&&(!this.selected||m.data.body===this.selected);}
-    this.orbitRoot.visible=!this.selected&&this.settings.orbits;this.asteroids.visible=!this.selected&&this.settings.asteroids&&!this.realAsteroids;this.moonOrbit.visible=this.selected==='earth'&&this.settings.orbits;
+    this.updateSaturnTour(now*1000);
+    if(this.controls.enabled){this.controls.autoRotate=this.settings.auto&&!this.transition&&!this.saturnTour&&!this.reducedMotion;this.controls.autoRotateSpeed=.5;this.controls.update();}
+    const tour=this.saturnTour,wideTour=tour?.phase==='approach'&&tour.framing[0]<.36;
+    for(const r of this.records.values()){if(!this.reducedMotion&&!tour)r.mesh.rotation.y+=dt*(r.data.id==='sun'?.015:.04);r.group.visible=tour?r.data.id==='saturn'||(wideTour&&!r.data.parent):!this.selected||r.data.id===this.selected||r.data.parent===this.selected;}for(const m of this.missionRecords){m.group.visible=!tour&&this.settings.missions&&this.mode!=='flight'&&new Date(this.date).getFullYear()>=m.data.year&&(!this.missionCategory||this.missionCategory===m.data.category)&&(!this.selected||m.data.body===this.selected);}
+    this.orbitRoot.visible=this.settings.orbits&&(!this.selected||wideTour);this.asteroids.visible=!this.selected&&this.settings.asteroids&&!this.realAsteroids;this.moonOrbit.visible=this.selected==='earth'&&this.settings.orbits;
     const cloud=this.records.get('earth').clouds;cloud.visible=this.settings.clouds;if(cloud)cloud.rotation.y+=dt*.007;
     if(this.magneticGroup)this.magneticGroup.position.copy(this.records.get('earth').position);if(this.rocheGroup)this.rocheGroup.position.copy(this.records.get('saturn').position);
     if(this.mode==='globe'){for(const flow of this.currentFlows)flow.dot.position.copy(flow.curve.getPointAt((this.elapsed*.035+flow.offset)%1));for(const flow of this.windFlows)flow.dot.position.copy(flow.curve.getPointAt((this.elapsed*.08+flow.offset)%1));this.globeClouds.rotation.y+=dt*.003;if(this.precipitation.material.uniforms?.time)this.precipitation.material.uniforms.time.value=this.elapsed;}

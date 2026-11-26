@@ -8,7 +8,7 @@
   var dialogs=document.querySelectorAll('dialog');for(var i=0;i<dialogs.length;i++){if(!dialogs[i].showModal){dialogs[i].showModal=function(){this.setAttribute('open','');this.open=true;};dialogs[i].close=function(){this.removeAttribute('open');this.open=false;};}}
   var progress=3,ready=false,stage=document.getElementById('boot-stage'),percent=document.getElementById('boot-percent');
   var controls=document.createElement('div');controls.className='boot-recovery';controls.hidden=true;
-  controls.innerHTML='<p>可以先使用兼容视图浏览，三维资源不会阻挡进入。</p><button id="boot-lite" class="secondary-button">进入兼容视图</button><button id="boot-retry" class="quiet-button">重新加载</button><a href="./lite.html">打开文字资料版 ↗</a>';
+  controls.innerHTML='<p>可以先使用兼容视图浏览，三维资源不会阻挡进入。</p><button id="boot-lite" class="secondary-button">进入兼容视图</button><button id="boot-retry" class="quiet-button">重新加载</button><a href="./lite.html#saturn">打开土星文字资料 ↗</a>';
   document.querySelector('.boot-center').appendChild(controls);
   function set(value,label){progress=Math.max(progress,Math.min(100,Math.round(value)));percent.innerHTML=('00'+progress).slice(-3)+'<span>%</span>';if(label)stage.textContent=label;}
   function recover(message){if(ready)return;controls.hidden=false;stage.textContent=message||'启动较慢，可以先进入兼容视图';}

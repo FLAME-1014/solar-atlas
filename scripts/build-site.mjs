@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -20,10 +21,13 @@ for (const file of ['index.html', 'styles.css', 'favicon.svg', 'ATTRIBUTION.md',
   await fs.copyFile(path.join(root, file), path.join(output, file));
 }
 const page = await fs.readFile(path.join(output, 'index.html'), 'utf8');
-await fs.writeFile(
-  path.join(output, 'index.html'),
-  page.replace('./styles.css"', `./styles.css?v=${version}`).replace(/bootstrap\.js\?v=[^"']+/, `bootstrap.js?v=${version}`),
-);
+const publishedPage = page
+  .replace('href="./styles.css"', `href="./styles.css?v=${version}"`)
+  .replace(/src="\.\/bootstrap\.js\?v=[^"']+"/, `src="./bootstrap.js?v=${version}"`);
+assert.equal(publishedPage.match(/<link\s+rel="stylesheet"\s+href="([^"<>]+)"\s*>/)?.[1], `./styles.css?v=${version}`, 'Published stylesheet link must be valid and versioned');
+assert.equal(publishedPage.match(/<script\s+src="([^"<>]*bootstrap\.js\?v=[^"<>]+)"\s*><\/script>/)?.[1], `./bootstrap.js?v=${version}`, 'Published bootstrap script must be valid and versioned');
+assert.match(publishedPage, /<script\s+src="\.\/config\.js"\s*><\/script>/, 'Published config must remain a separate script');
+await fs.writeFile(path.join(output, 'index.html'), publishedPage);
 for (const file of ['bootstrap.js', 'sw.js']) {
   const target = path.join(output, file);
   const content = await fs.readFile(target, 'utf8');

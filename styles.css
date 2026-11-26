@@ -29,3 +29,70 @@ dialog{color:var(--paper);background:#0b0f11;border:1px solid #c6b28e33;padding:
 @media(max-width:600px){
   html,body{height:100%;height:100dvh}.explorer-header{top:max(10px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right))}.landing-copy h1{letter-spacing:-3px}.scene-label{min-height:36px;min-width:36px}.search-result{min-height:48px}.directory-item{min-height:48px}.panel-menu button{min-height:46px}.switch{min-width:36px;height:22px}.switch::after{width:13px;height:13px}.switch[aria-checked=true]::after{transform:translateX(16px)}.touch-flight{display:block;position:absolute;left:15px;right:15px;bottom:172px;pointer-events:none}.touch-pad{display:grid;grid-template-columns:repeat(3,43px);grid-template-rows:43px 43px;gap:5px;float:left;pointer-events:auto}.touch-pad button,.touch-altitude button{background:#0d1b23c9;border:1px solid #8db5c65e;border-radius:12px;color:#c3e1e3;width:43px;height:43px;font-size:16px;touch-action:none;user-select:none}.touch-pad button:first-child{grid-column:2}.touch-pad button:nth-child(2){grid-column:1;grid-row:2}.touch-pad button:nth-child(3){grid-column:2;grid-row:2}.touch-pad button:nth-child(4){grid-column:3;grid-row:2}.touch-pad button.pressed{background:#397389c9;color:white}.touch-altitude{float:right;display:flex;flex-direction:column;gap:5px;pointer-events:auto}.touch-flight>label{display:block;clear:both;padding-top:14px;font-size:9px;color:#9ab3b5;pointer-events:auto;text-align:center}.touch-flight input{width:70%;vertical-align:middle;margin-left:10px;accent-color:#a0c9d0}.flight-left .hud-card:nth-child(2){display:none}.flight-right .flight-targets>div{max-height:85px}.flight-left{width:145px}.flight-right{width:175px}.flight-crosshair{top:52%}.boot-center:has(.boot-recovery:not([hidden])){transform:scale(.85)}
 }
+
+dialog#search-dialog[open]{display:flex;flex-direction:column;max-height:min(720px,calc(100dvh - 32px));overflow:hidden}
+.search-header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px 12px}
+.search-header h2{margin:0;font-size:15px;font-weight:400;letter-spacing:.04em}
+.search-header .icon-button{width:36px;height:36px}
+.search-input-row{min-height:60px;padding:12px 20px}
+.search-context{margin:0;padding:13px 20px 5px;color:#aaa294;font-size:11px;letter-spacing:.05em}
+.search-results{flex:1;min-height:0;max-height:min(430px,48dvh)}
+.search-result{min-height:54px;gap:14px;border:1px solid transparent}
+.search-result.active{background:#b496621c;border-color:#edbd8240}
+.search-result:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+.search-result .result-icon{display:grid;place-items:center;width:32px;height:32px;border:1px solid #edbd8224;border-radius:10px;font-size:0}
+.search-result .result-icon svg{width:16px;height:16px}
+.search-result small{font-family:var(--sans);font-size:10px;letter-spacing:.015em;color:#b1b5b0}
+.search-result>span:last-child{color:#c6bba5}
+.search-keys{display:flex;align-items:center;gap:7px}
+#search-count{min-height:14px;color:#bfb5a3}
+#search-empty{margin:0;padding:28px 22px 32px;text-align:center;font-size:13px;color:#c1bcaf;line-height:1.8}
+
+@media(max-width:600px){
+  dialog#search-dialog[open]{top:max(12px,env(safe-area-inset-top));width:calc(100% - 24px);max-height:calc(100dvh - 24px - env(safe-area-inset-bottom));border-radius:16px}
+  #search-dialog .search-header{padding:14px 14px 10px}
+  #search-dialog .search-header .icon-button{width:40px;height:40px}
+  #search-dialog .search-input-row{min-height:58px;padding:12px 16px;gap:11px}
+  #search-input{font-size:16px}
+  #search-dialog .search-results{max-height:none;padding:6px 9px;overscroll-behavior:contain}
+  #search-dialog .search-result{min-height:52px;gap:11px;padding:9px 8px}
+  #search-dialog .search-result>span:last-child{font-size:10px}
+  #search-dialog footer{min-height:48px;padding:10px 15px}
+}
+
+/* Saturn takes the whole stage. Only the dock's controls intercept the scene. */
+#landing{display:flex;flex-direction:column}
+.landing-copy{margin-top:clamp(32px,17vh,180px)}
+.landing-description{color:#d1c8b8;font-size:clamp(14px,1.25vw,17px);text-wrap:balance}
+.landing-cta{flex-wrap:wrap}
+.landing-footer{margin-top:auto;padding-top:44px}
+.is-saturn-tour #explorer-ui{display:none}
+.is-saturn-tour .grain,.is-saturn-tour .vignette{display:none}
+.compatibility-mode #mode-nav [data-mode=flight]{display:none}
+.saturn-tour{position:absolute;inset:0;z-index:8;pointer-events:none;--tour-gutter:clamp(16px,4.3vw,68px)}
+.saturn-tour-heading{position:absolute;top:max(24px,env(safe-area-inset-top));left:max(var(--tour-gutter),env(safe-area-inset-left));text-shadow:0 2px 12px #050708,0 1px 4px #050708}
+.saturn-tour-heading h2{margin:0 0 6px;color:#f3e8d6;font-size:clamp(27px,4vw,54px);font-weight:400;line-height:1.1;letter-spacing:-.025em}
+.saturn-tour-heading p{margin:0;color:#d0c1a7;font-size:12px}
+.saturn-tour-dock{position:absolute;inset:auto max(var(--tour-gutter),env(safe-area-inset-right)) max(24px,calc(env(safe-area-inset-bottom) + 12px)) max(var(--tour-gutter),env(safe-area-inset-left));display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px 20px;padding:13px 0 0;border-top:1px solid #c6b28e54;color:#f3e8d6;text-shadow:0 2px 12px #050708,0 1px 4px #050708}
+.saturn-tour::before{content:"";position:absolute;inset:auto 0 0;height:min(210px,38%);background:linear-gradient(transparent,#050708e8)}
+.saturn-tour-copy p{margin:0;font-size:14px;line-height:1.55}
+#saturn-status:focus{outline:1px solid #edbd8266;outline-offset:5px}
+#saturn-controls-hint{margin-top:3px;color:#d0c1a7;font-size:12px}
+.saturn-tour-actions,.saturn-angle-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.saturn-tour-actions button{pointer-events:auto;min-height:44px;min-width:44px;padding:0 14px;background:#0c1013eb;font-size:13px;white-space:normal}
+.saturn-tour-actions button:hover,.saturn-tour-actions [aria-pressed=true]{border-color:var(--gold);color:#ffe2b4;background:#231d16}
+#saturn-exit{border-color:transparent;background:#090c0eaa}
+#saturn-exit:hover{border-color:var(--gold);color:#ffe2b4}
+.is-saturn-tour #close-archive{min-width:44px;min-height:44px}
+@media(max-width:600px){
+  .landing-copy{margin-top:clamp(28px,13dvh,120px)}
+  .landing-header .quiet-button{min-height:44px}
+  .landing-cta button{min-height:48px}
+  .landing-footer .text-button{min-height:44px}
+  .saturn-tour-heading{top:max(20px,env(safe-area-inset-top))}
+  .saturn-tour-dock{align-items:flex-start}
+}
+@media(max-height:450px) and (orientation:landscape){
+  .is-saturn-tour .saturn-tour-heading{top:max(12px,env(safe-area-inset-top))}
+  .saturn-tour-dock{bottom:max(10px,env(safe-area-inset-bottom));padding-top:6px}
+}
